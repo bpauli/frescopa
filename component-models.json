@@ -4,7 +4,8 @@
     "fields": [
       {
         "component": "text",
-        "name": "title"
+        "name": "title",
+        "label": "Title"
       }
     ]
   },
