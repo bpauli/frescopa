@@ -5,6 +5,7 @@ import { fetchTemplates } from './templates.js';
 import { createProject, slugify } from './project.js';
 import { listProjects, readProject, parseProject } from './projects.js';
 import { saveStageState, recomputeGating } from './stage-state.js';
+import './keyword-panel.js';
 
 // Coworker Projects app. Round one routes between three views:
 //   list    - the projects landing (the front door)
@@ -43,6 +44,11 @@ const DISC_MOD = {
   Approved: 'is-approved',
   Locked: 'is-locked',
 };
+
+// Normalize a stage name to a key, e.g. "Keyword Identification" -> "keyword-identification".
+function stageKey(name) {
+  return (name || '').trim().toLowerCase().replace(/\s+/g, '-');
+}
 
 // Where to land when a project opens: the furthest unlocked stage.
 function defaultActiveStage(stages) {
@@ -412,15 +418,23 @@ class DaCoworkerProject extends LitElement {
         <p class="cw-muted" style="margin:0;">This stage is locked. Complete the previous stage to continue.</p>
       </div>`;
     }
+    const isKeyword = stageKey(stage.stage) === 'keyword-identification';
     return html`
       <h2 class="cw-panel-title">Stage ${stage.stageIndex}: ${stage.stage}</h2>
-      <p class="cw-panel-note">
+      ${isKeyword ? '' : html`<p class="cw-panel-note">
         Placeholder panel - the ${stage.stage} tools arrive in a later ticket.
-      </p>
+      </p>`}
       <div class="cw-card">
-        <ul class="cw-steps-list">
-          ${stage.steps.map((st) => html`<li>${st.displayName}</li>`)}
-        </ul>
+        ${isKeyword
+    ? html`<da-keyword-panel
+            .context=${this.context}
+            .daFetch=${this.actions?.daFetch}
+            .slug=${this._selectedSlug}
+            .keywords=${this._project.keywords ?? []}
+            @keywords-changed=${(e) => { this._project = { ...this._project, keywords: e.detail.keywords }; }}></da-keyword-panel>`
+    : html`<ul class="cw-steps-list">
+            ${stage.steps.map((st) => html`<li>${st.displayName}</li>`)}
+          </ul>`}
         ${this.renderStageControl(stage)}
         ${this._stageError ? html`<p class="cw-error" style="margin:.75rem 0 0;">${this._stageError}</p>` : ''}
       </div>`;

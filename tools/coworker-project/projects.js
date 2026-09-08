@@ -67,9 +67,10 @@ export async function readProject(context, daFetch, slug) {
 }
 
 /**
- * Parse a project record into a view model: the meta row plus stages ordered by
- * stageIndex, each with its ordered steps attached from the steps sheet.
- * @returns {{meta: object, stages: Array<{stage, stageIndex, status, steps}>} | null}
+ * Parse a project record into a view model: the meta row, stages ordered by
+ * stageIndex (each with its ordered steps), and the Stage 1 keyword list.
+ * @returns {{meta: object, stages: Array<{stage, stageIndex, status, steps}>,
+ *   keywords: Array<{text, role}>} | null}
  */
 export function parseProject(record) {
   if (!record || typeof record !== 'object') return null;
@@ -83,9 +84,17 @@ export function parseProject(record) {
       status: s.status || '',
       steps: stepRows
         .filter((st) => Number(st.stageIndex) === Number(s.stageIndex))
-        .map((st) => ({ step: st.step, displayName: st.displayName, stepIndex: Number(st.stepIndex) }))
+        .map((st) => ({
+          step: st.step, displayName: st.displayName, stepIndex: Number(st.stepIndex),
+        }))
         .sort((a, b) => a.stepIndex - b.stepIndex),
     }))
     .sort((a, b) => a.stageIndex - b.stageIndex);
-  return { meta, stages };
+  const keywords = (record.keywords?.data ?? [])
+    .map((k) => ({
+      text: (k.text || '').trim(),
+      role: k.role === 'primary' ? 'primary' : 'secondary',
+    }))
+    .filter((k) => k.text);
+  return { meta, stages, keywords };
 }
