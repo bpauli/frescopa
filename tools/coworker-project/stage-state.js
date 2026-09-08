@@ -57,11 +57,12 @@ export function deriveOverallStatus(stages) {
 }
 
 /**
- * Rebuild the multi-sheet record from the parsed view model. The `keywords`
- * sheet holds Stage 1's keyword list ({text, role}); it is always written (empty
- * when there are none) so a save never drops it.
+ * Rebuild the multi-sheet record from the parsed view model. The `keywords` and
+ * `cannibalization` sheets hold Stage 1's data; both are always written (empty
+ * when there is none) so a save never drops them. The cannibalization check
+ * timestamp is denormalized onto each competitor row.
  */
-export function serializeRecord(meta, stages, keywords = []) {
+export function serializeRecord(meta, stages, keywords = [], cannibalization = null) {
   const ordered = [...stages].sort((a, b) => a.stageIndex - b.stageIndex);
   const stageRows = ordered.map((s) => ({
     stage: s.stage, stageIndex: s.stageIndex, status: s.status,
@@ -74,14 +75,24 @@ export function serializeRecord(meta, stages, keywords = []) {
     displayName: st.displayName,
   })));
   const keywordRows = (keywords || []).map((k) => ({ text: k.text, role: k.role }));
+  const cann = cannibalization || {};
+  const cannRows = (cann.competitors || []).map((c) => ({
+    url: c.url,
+    title: c.title,
+    overlap: c.overlap,
+    status: c.status,
+    reason: c.reason,
+    checkedAt: cann.checkedAt || '',
+  }));
   return {
     ':type': 'multi-sheet',
     ':version': 3,
-    ':names': ['meta', 'stages', 'steps', 'keywords'],
+    ':names': ['meta', 'stages', 'steps', 'keywords', 'cannibalization'],
     meta: sheet([meta]),
     stages: sheet(stageRows),
     steps: sheet(stepRows),
     keywords: sheet(keywordRows),
+    cannibalization: sheet(cannRows),
   };
 }
 
@@ -104,8 +115,8 @@ export async function saveStageState(context, daFetch, slug, project, { stageInd
   const gated = recomputeGating(next);
   const meta = { ...project.meta, status: deriveOverallStatus(gated) };
 
-  // Preserve the keyword list (and any other model data) across a status write.
-  const record = serializeRecord(meta, gated, project.keywords);
+  // Preserve the keyword list + cannibalization data across a status write.
+  const record = serializeRecord(meta, gated, project.keywords, project.cannibalization);
   await writeRecord(org, site, slug, daFetch, record);
   return { meta, stages: gated };
 }
@@ -125,7 +136,26 @@ export async function saveKeywords(context, daFetch, slug, keywords) {
   if (!org || !site || typeof daFetch !== 'function' || !slug) throw new Error('Missing DA context.');
   const model = parseProject(await readProject(context, daFetch, slug));
   if (!model) throw new Error('Project not found.');
-  const record = serializeRecord(model.meta, model.stages, keywords);
+  const record = serializeRecord(model.meta, model.stages, keywords, model.cannibalization);
   await writeRecord(org, site, slug, daFetch, record);
   return keywords;
+}
+
+/**
+ * Persist Stage 1's cannibalization result. Read-modify-write so a concurrent
+ * keyword or stage-status change is not clobbered.
+ * @param {{org: string, repo: string}} context
+ * @param {(url: string, opts?: object) => Promise<Response>} daFetch
+ * @param {string} slug
+ * @param {{checkedAt: string, competitors: Array}} cannibalization
+ * @returns {Promise<{checkedAt: string, competitors: Array}>} the saved value
+ */
+export async function saveCannibalization(context, daFetch, slug, cannibalization) {
+  const { org, repo: site } = context || {};
+  if (!org || !site || typeof daFetch !== 'function' || !slug) throw new Error('Missing DA context.');
+  const model = parseProject(await readProject(context, daFetch, slug));
+  if (!model) throw new Error('Project not found.');
+  const record = serializeRecord(model.meta, model.stages, model.keywords, cannibalization);
+  await writeRecord(org, site, slug, daFetch, record);
+  return cannibalization;
 }

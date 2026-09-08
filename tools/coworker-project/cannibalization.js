@@ -63,6 +63,20 @@ export function cleanCompetitors(raw, inventory = []) {
 }
 
 /**
+ * Assign each competitor an initial review status from its overlap: high
+ * overlap is flagged (needs review), low overlap is ignored by default. The
+ * panel (#17) lets the user move pages between the two. Pure.
+ * @param {Array<{url, title, overlap, reason}>} competitors
+ * @returns {Array<{url, title, overlap, status, reason}>}
+ */
+export function withInitialStatus(competitors) {
+  return (competitors || []).map((c) => ({
+    ...c,
+    status: c.overlap === 'high' ? 'flagged' : 'ignored',
+  }));
+}
+
+/**
  * Run the cannibalization check for a keyword against the site's pages. Never
  * throws: an empty inventory, malformed response, or AO error degrades to an
  * empty competitor list with a soft error.

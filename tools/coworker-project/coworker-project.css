@@ -390,3 +390,102 @@ da-coworker-project .cw-kw-suggestion:hover {
   border-color: var(--s2-blue-700);
   color: var(--s2-blue-900);
 }
+
+/* --- Stage 1: two-column layout (keyword + cannibalization) --- */
+da-coworker-project .cw-stage1 {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--s2-spacing-300);
+}
+
+@media (width >= 900px) {
+  da-coworker-project .cw-stage1 {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+da-coworker-project .cw-stage1-foot {
+  margin-top: var(--s2-spacing-300);
+}
+
+/* --- cannibalization panel --- */
+da-coworker-project .cw-cn-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--s2-spacing-200);
+}
+
+da-coworker-project .cw-cn-tabs {
+  display: flex;
+  gap: var(--s2-spacing-100);
+  margin: var(--s2-spacing-200) 0;
+  border-bottom: 1px solid var(--s2-gray-200);
+}
+
+da-coworker-project .cw-cn-tab {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: var(--s2-spacing-100) var(--s2-spacing-100);
+  color: var(--s2-gray-600);
+  font: inherit;
+  font-size: var(--s2-component-s-regular-font-size);
+  border-bottom: 2px solid transparent;
+}
+
+da-coworker-project .cw-cn-tab.is-active {
+  color: var(--s2-gray-900);
+  border-bottom-color: var(--s2-blue-900);
+}
+
+da-coworker-project .cw-cn-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2-spacing-200);
+}
+
+da-coworker-project .cw-cn-card {
+  border: 1px solid var(--s2-gray-200);
+  border-radius: var(--s2-corner-radius-300);
+  padding: var(--s2-spacing-200) var(--s2-spacing-300);
+}
+
+da-coworker-project .cw-cn-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--s2-spacing-200);
+}
+
+da-coworker-project .cw-cn-url {
+  color: var(--s2-gray-600);
+  font-size: var(--s2-component-xs-regular-font-size);
+}
+
+da-coworker-project .cw-cn-badge.is-flagged {
+  background: var(--s2-red-300);
+  color: var(--s2-red-1100);
+}
+
+da-coworker-project .cw-cn-badge.is-ignored {
+  background: var(--s2-gray-200);
+  color: var(--s2-gray-700);
+}
+
+da-coworker-project .cw-cn-reason {
+  color: var(--s2-gray-700);
+  font-size: var(--s2-component-s-regular-font-size);
+  margin: var(--s2-spacing-100) 0;
+}
+
+da-coworker-project .cw-cn-card-actions {
+  display: flex;
+  gap: var(--s2-spacing-100);
+  flex-wrap: wrap;
+  margin-top: var(--s2-spacing-100);
+}
+
+da-coworker-project .cw-cn-card-actions a {
+  text-decoration: none;
+}

@@ -5,7 +5,9 @@ import { fetchTemplates } from './templates.js';
 import { createProject, slugify } from './project.js';
 import { listProjects, readProject, parseProject } from './projects.js';
 import { saveStageState, recomputeGating } from './stage-state.js';
+import { primaryOf } from './keyword-logic.js';
 import './keyword-panel.js';
+import './cannibalization-panel.js';
 
 // Coworker Projects app. Round one routes between three views:
 //   list    - the projects landing (the front door)
@@ -418,25 +420,45 @@ class DaCoworkerProject extends LitElement {
         <p class="cw-muted" style="margin:0;">This stage is locked. Complete the previous stage to continue.</p>
       </div>`;
     }
-    const isKeyword = stageKey(stage.stage) === 'keyword-identification';
+    const title = html`<h2 class="cw-panel-title">Stage ${stage.stageIndex}: ${stage.stage}</h2>`;
+    const foot = html`
+      ${this.renderStageControl(stage)}
+      ${this._stageError ? html`<p class="cw-error" style="margin:.75rem 0 0;">${this._stageError}</p>` : ''}`;
+
+    if (stageKey(stage.stage) === 'keyword-identification') {
+      const keywords = this._project.keywords ?? [];
+      return html`
+        ${title}
+        <div class="cw-stage1">
+          <div class="cw-card">
+            <da-keyword-panel
+              .context=${this.context}
+              .daFetch=${this.actions?.daFetch}
+              .slug=${this._selectedSlug}
+              .keywords=${keywords}
+              @keywords-changed=${(e) => { this._project = { ...this._project, keywords: e.detail.keywords }; }}></da-keyword-panel>
+          </div>
+          <div class="cw-card">
+            <da-cannibalization-panel
+              .context=${this.context}
+              .daFetch=${this.actions?.daFetch}
+              .slug=${this._selectedSlug}
+              .keyword=${primaryOf(keywords)?.text ?? ''}
+              .cannibalization=${this._project.cannibalization ?? null}
+              @cannibalization-changed=${(e) => { this._project = { ...this._project, cannibalization: e.detail.cannibalization }; }}></da-cannibalization-panel>
+          </div>
+        </div>
+        <div class="cw-stage1-foot">${foot}</div>`;
+    }
+
     return html`
-      <h2 class="cw-panel-title">Stage ${stage.stageIndex}: ${stage.stage}</h2>
-      ${isKeyword ? '' : html`<p class="cw-panel-note">
-        Placeholder panel - the ${stage.stage} tools arrive in a later ticket.
-      </p>`}
+      ${title}
+      <p class="cw-panel-note">Placeholder panel - the ${stage.stage} tools arrive in a later ticket.</p>
       <div class="cw-card">
-        ${isKeyword
-    ? html`<da-keyword-panel
-            .context=${this.context}
-            .daFetch=${this.actions?.daFetch}
-            .slug=${this._selectedSlug}
-            .keywords=${this._project.keywords ?? []}
-            @keywords-changed=${(e) => { this._project = { ...this._project, keywords: e.detail.keywords }; }}></da-keyword-panel>`
-    : html`<ul class="cw-steps-list">
-            ${stage.steps.map((st) => html`<li>${st.displayName}</li>`)}
-          </ul>`}
-        ${this.renderStageControl(stage)}
-        ${this._stageError ? html`<p class="cw-error" style="margin:.75rem 0 0;">${this._stageError}</p>` : ''}
+        <ul class="cw-steps-list">
+          ${stage.steps.map((st) => html`<li>${st.displayName}</li>`)}
+        </ul>
+        ${foot}
       </div>`;
   }
 

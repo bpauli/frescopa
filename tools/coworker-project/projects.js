@@ -96,5 +96,20 @@ export function parseProject(record) {
       role: k.role === 'primary' ? 'primary' : 'secondary',
     }))
     .filter((k) => k.text);
-  return { meta, stages, keywords };
+  const cannRows = record.cannibalization?.data ?? [];
+  const cannibalization = {
+    checkedAt: cannRows[0]?.checkedAt || '',
+    competitors: cannRows
+      .map((c) => ({
+        url: (c.url || '').trim(),
+        title: c.title || '',
+        overlap: c.overlap === 'high' ? 'high' : 'low',
+        status: c.status === 'ignored' ? 'ignored' : 'flagged',
+        reason: c.reason || '',
+      }))
+      .filter((c) => c.url),
+  };
+  return {
+    meta, stages, keywords, cannibalization,
+  };
 }
