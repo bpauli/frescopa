@@ -1,13 +1,15 @@
+/* eslint-disable no-underscore-dangle */
 import DA_SDK from 'https://da.live/nx/utils/sdk.js';
 import { LitElement, html } from 'da-lit';
 import { fetchTemplates } from './templates.js';
 import { createProject, slugify } from './project.js';
 import { listProjects, readProject, parseProject } from './projects.js';
+import { saveStageState, recomputeGating } from './stage-state.js';
 
 // Coworker Projects app. Round one routes between three views:
 //   list    - the projects landing (the front door)
 //   wizard  - the Add Project wizard (name, description, template, create)
-//   project - the read-only project view (stub here; filled in ticket #9)
+//   project - the interactive stage-execution shell (ticket #12)
 //
 // NOTE: never name a method `update` - that is a reserved LitElement lifecycle
 // method and shadows render(), so the component silently fails to paint.
@@ -20,7 +22,7 @@ function fmtDate(iso) {
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString();
 }
 
-// Muted background per PRD status for the stage badge.
+// Muted background per PRD status for the stage badge (light meta area).
 const STATUS_BG = {
   Locked: '#e6e6e6',
   'Not Started': '#e3f0ff',
@@ -28,6 +30,35 @@ const STATUS_BG = {
   Complete: '#d7f0dd',
   Approved: '#c3e6cb',
 };
+
+// A small pill for an overall/meta status.
+function statusBadge(status) {
+  if (!status) return '';
+  const bg = STATUS_BG[status] ?? '#eee';
+  return html`<span style="background:${bg}; color:#222; border-radius:1rem; padding:.1rem .6rem; font-size:.8rem; white-space:nowrap;">${status}</span>`;
+}
+
+// Stage-bar (dark) status glyph + icon-disc background, per PRD status.
+const STAGE_ICON = {
+  'Not Started': '○',
+  'In Progress': '◐',
+  Complete: '✓',
+  Approved: '★',
+  Locked: '🔒',
+};
+const ICON_BG = {
+  'Not Started': '#3a4a5a',
+  'In Progress': '#5a5326',
+  Complete: '#2f5a3a',
+  Approved: '#2f5a4a',
+  Locked: '#333',
+};
+
+// Where to land when a project opens: the furthest unlocked stage.
+function defaultActiveStage(stages) {
+  const open = stages.filter((s) => s.status !== 'Locked');
+  return open.length ? open[open.length - 1].stageIndex : 1;
+}
 
 class DaCoworkerProject extends LitElement {
   static properties = {
@@ -40,6 +71,9 @@ class DaCoworkerProject extends LitElement {
     _selectedSlug: { state: true },
     _project: { state: true },
     _loadingProject: { state: true },
+    _activeStage: { state: true },
+    _savingStage: { state: true },
+    _stageError: { state: true },
     _step: { state: true },
     _values: { state: true },
     _templates: { state: true },
@@ -60,8 +94,13 @@ class DaCoworkerProject extends LitElement {
     this._selectedSlug = null;
     this._project = null;
     this._loadingProject = false;
+    this._activeStage = 1;
+    this._savingStage = false;
+    this._stageError = null;
     this._step = 0;
-    this._values = { title: '', description: '', templateId: '', templatePath: '' };
+    this._values = {
+      title: '', description: '', templateId: '', templatePath: '',
+    };
     this._templates = [];
     this._loadingTpls = true;
     this._creating = false;
@@ -115,8 +154,15 @@ class DaCoworkerProject extends LitElement {
   async loadProject(slug) {
     this._loadingProject = true;
     this._project = null;
+    this._stageError = null;
     try {
-      this._project = parseProject(await readProject(this.context, this.actions?.daFetch, slug));
+      const parsed = parseProject(await readProject(this.context, this.actions?.daFetch, slug));
+      if (parsed) {
+        // Re-gate on read so a hand-edited or older record stays consistent.
+        parsed.stages = recomputeGating(parsed.stages);
+        this._activeStage = defaultActiveStage(parsed.stages);
+      }
+      this._project = parsed;
     } catch {
       this._project = null;
     } finally {
@@ -124,9 +170,41 @@ class DaCoworkerProject extends LitElement {
     }
   }
 
+  // Open an unlocked stage's panel.
+  openStage(stageIndex) {
+    const stage = this._project?.stages.find((s) => s.stageIndex === stageIndex);
+    if (stage && stage.status !== 'Locked') this._activeStage = stageIndex;
+  }
+
+  // Persist a stage status change, re-gate, and refresh the view model.
+  async changeStage(stageIndex, status) {
+    this._savingStage = true;
+    this._stageError = null;
+    try {
+      const updated = await saveStageState(
+        this.context,
+        this.actions.daFetch,
+        this._selectedSlug,
+        this._project,
+        { stageIndex, status },
+      );
+      this._project = { ...this._project, meta: updated.meta, stages: updated.stages };
+      const active = updated.stages.find((s) => s.stageIndex === this._activeStage);
+      if (!active || active.status === 'Locked') {
+        this._activeStage = defaultActiveStage(updated.stages);
+      }
+    } catch (e) {
+      this._stageError = e.message;
+    } finally {
+      this._savingStage = false;
+    }
+  }
+
   resetWizard() {
     this._step = 0;
-    this._values = { title: '', description: '', templateId: '', templatePath: '' };
+    this._values = {
+      title: '', description: '', templateId: '', templatePath: '',
+    };
     this._result = null;
     this._error = null;
   }
@@ -282,11 +360,90 @@ class DaCoworkerProject extends LitElement {
       ${this._error ? html`<p style="color:#b5121b;">Error: ${this._error}</p>` : ''}`;
   }
 
-  // --- render: project (read-only) ---
-  statusBadge(status) {
-    if (!status) return '';
-    const bg = STATUS_BG[status] ?? '#eee';
-    return html`<span style="background:${bg}; border-radius:1rem; padding:.1rem .6rem; font-size:.8rem; white-space:nowrap;">${status}</span>`;
+  // --- render: project (stage-execution shell) ---
+  // One node in the top progress bar. Unlocked nodes are buttons that open the
+  // stage; a locked node collapses to a lock disc (matches the demo shell).
+  renderStageNode(s) {
+    const locked = s.status === 'Locked';
+    const active = s.stageIndex === this._activeStage;
+    const disc = `display:inline-flex; align-items:center; justify-content:center;
+      width:1.9rem; height:1.9rem; border-radius:50%; flex:0 0 auto;
+      background:${ICON_BG[s.status] ?? '#333'}; font-size:.9rem;`;
+    if (locked) {
+      return html`<div title="Locked until the previous stage is complete"
+        style="display:flex; align-items:center; padding:.4rem .6rem; opacity:.55;">
+        <span style=${disc}>${STAGE_ICON.Locked}</span>
+      </div>`;
+    }
+    return html`<button @click=${() => this.openStage(s.stageIndex)}
+      style="display:flex; align-items:center; gap:.6rem; border:none; cursor:pointer;
+        border-radius:.6rem; padding:.4rem .7rem; color:#eee; text-align:left;
+        background:${active ? '#3b3a36' : 'transparent'};">
+      <span style=${disc}>${STAGE_ICON[s.status] ?? '○'}</span>
+      <span style="display:flex; flex-direction:column; line-height:1.15;">
+        <strong style="font-size:.9rem;">${s.stage}</strong>
+        <span style="font-size:.72rem; color:#aaa;">Stage ${s.stageIndex} &middot; ${s.status}</span>
+      </span>
+    </button>`;
+  }
+
+  renderStageBar(stages) {
+    return html`
+      <div class="stage-bar" style="display:flex; align-items:stretch; gap:.15rem;
+        overflow-x:auto; background:#1f1d1a; border-radius:.75rem; padding:.4rem; margin:1rem 0 1.5rem;">
+        ${stages.map((s, i) => html`
+          ${i > 0 ? html`<span style="align-self:center; color:#666; padding:0 .1rem;">&rsaquo;</span>` : ''}
+          ${this.renderStageNode(s)}`)}
+      </div>`;
+  }
+
+  // Status control for the active unlocked stage - the mechanism that drives
+  // gating + persistence until the real per-stage panels land (tickets #16+).
+  renderStageControl(stage) {
+    const set = (status) => () => this.changeStage(stage.stageIndex, status);
+    const btn = 'padding:.4rem .9rem; border-radius:.4rem; border:1px solid #555; cursor:pointer;';
+    let controls;
+    if (stage.status === 'Not Started') {
+      controls = html`<button ?disabled=${this._savingStage} @click=${set('In Progress')}
+        style="${btn} background:#2f5a3a; color:#fff; border-color:#2f5a3a;">Start stage</button>`;
+    } else if (stage.status === 'In Progress') {
+      controls = html`
+        <button ?disabled=${this._savingStage} @click=${set('Complete')}
+          style="${btn} background:#2f5a3a; color:#fff; border-color:#2f5a3a;">Mark complete</button>
+        <button ?disabled=${this._savingStage} @click=${set('Not Started')}
+          style="${btn} background:transparent; color:#ccc;">Reset</button>`;
+    } else {
+      controls = html`<button ?disabled=${this._savingStage} @click=${set('In Progress')}
+        style="${btn} background:transparent; color:#ccc;">Reopen stage</button>`;
+    }
+    return html`
+      <div style="display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; margin-top:1rem;">
+        ${controls}
+        ${this._savingStage ? html`<span style="color:#aaa; font-size:.85rem;">Saving...</span>` : ''}
+      </div>`;
+  }
+
+  renderStagePanel(stages) {
+    const stage = stages.find((s) => s.stageIndex === this._activeStage);
+    if (!stage) return '';
+    const card = 'background:#1f1d1a; border:1px solid #33312d; border-radius:.75rem; padding:1.25rem;';
+    if (stage.status === 'Locked') {
+      return html`<div style=${card}>
+        <p style="color:#aaa; margin:0;">This stage is locked. Complete the previous stage to continue.</p>
+      </div>`;
+    }
+    return html`
+      <h2 style="color:#fff; margin:0 0 .25rem;">Stage ${stage.stageIndex}: ${stage.stage}</h2>
+      <p style="color:#aaa; margin:0 0 1rem;">
+        Placeholder panel - the ${stage.stage} tools arrive in a later ticket.
+      </p>
+      <div style=${card}>
+        <ul style="margin:0; padding-left:1.2rem; color:#ddd;">
+          ${stage.steps.map((st) => html`<li style="margin:.15rem 0;">${st.displayName}</li>`)}
+        </ul>
+        ${this.renderStageControl(stage)}
+        ${this._stageError ? html`<p style="color:#ff8a8a; margin:.75rem 0 0;">${this._stageError}</p>` : ''}
+      </div>`;
   }
 
   renderProjectBody() {
@@ -294,43 +451,35 @@ class DaCoworkerProject extends LitElement {
     if (!this._project) return html`<p>Project not found.</p>`;
     const { meta, stages } = this._project;
     return html`
-      ${meta.description ? html`<p>${meta.description}</p>` : ''}
-      <dl class="meta" style="color:#555; font-size:.9rem;">
-        ${meta.templateId ? html`<div>Template: <code>${meta.templateId}</code></div>` : ''}
-        ${meta.status ? html`<div>Status: ${meta.status}</div>` : ''}
-        ${meta.createdAt ? html`<div>Created: ${fmtDate(meta.createdAt)}</div>` : ''}
-      </dl>
-      <ol class="stages" style="list-style:none; padding:0;">
-        ${stages.map((s) => html`
-          <li style="border:1px solid #ddd; border-radius:.5rem; padding:.75rem 1rem; margin:.5rem 0;">
-            <div style="display:flex; justify-content:space-between; align-items:center; gap:1rem;">
-              <strong>${s.stageIndex}. ${s.stage}</strong>
-              ${this.statusBadge(s.status)}
-            </div>
-            <ul style="margin:.5rem 0 0; color:#444;">
-              ${s.steps.map((st) => html`<li>${st.displayName}</li>`)}
-            </ul>
-          </li>`)}
-      </ol>`;
+      ${meta.description ? html`<p style="color:#ccc; margin:.25rem 0;">${meta.description}</p>` : ''}
+      <div style="color:#999; font-size:.85rem; display:flex; gap:1rem; flex-wrap:wrap; align-items:center;">
+        ${meta.templateId ? html`<span>Template: <code>${meta.templateId}</code></span>` : ''}
+        ${meta.status ? html`<span>${statusBadge(meta.status)}</span>` : ''}
+        ${meta.createdAt ? html`<span>Created ${fmtDate(meta.createdAt)}</span>` : ''}
+      </div>
+      ${this.renderStageBar(stages)}
+      ${this.renderStagePanel(stages)}`;
   }
 
   renderProject() {
     const title = this._project?.meta?.title ?? this._selectedSlug;
     return html`
-      <div style="display:flex; justify-content:space-between; align-items:center; gap:1rem;">
-        <h1>${title}</h1>
-        <button @click=${() => this.showList()}>Back to projects</button>
-      </div>
-      ${this.renderProjectBody()}`;
+      <div style="background:#141312; color:#eee; border-radius:1rem; padding:1.5rem 1.75rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:1rem;">
+          <h1 style="color:#fff; margin:0;">${title}</h1>
+          <button @click=${() => this.showList()}>Back to projects</button>
+        </div>
+        ${this.renderProjectBody()}
+      </div>`;
   }
 
   render() {
     let body;
+    let wide = false;
     if (this._view === 'wizard') body = this.renderWizard();
-    else if (this._view === 'project') body = this.renderProject();
-    else body = this.renderList();
+    else if (this._view === 'project') { body = this.renderProject(); wide = true; } else body = this.renderList();
     return html`
-      <main style="font-family: system-ui, sans-serif; padding: 2rem; max-width: 40rem;">
+      <main style="font-family: system-ui, sans-serif; padding: 2rem; max-width: ${wide ? '72rem' : '40rem'};">
         ${body}
       </main>`;
   }
