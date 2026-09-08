@@ -1,0 +1,29 @@
+{
+  ":type": "sheet",
+  ":sheetname": "data",
+  "total": 20,
+  "limit": 20,
+  "offset": 0,
+  "data": [
+    { "template": "SEO", "stage": "Keyword Identification", "stageIndex": 1, "stepIndex": 1, "step": "keyword-request", "displayName": "Keyword Request" },
+    { "template": "SEO", "stage": "Keyword Identification", "stageIndex": 1, "stepIndex": 2, "step": "keyword-suggestions", "displayName": "Keyword Suggestions" },
+    { "template": "SEO", "stage": "Keyword Identification", "stageIndex": 1, "stepIndex": 3, "step": "set-primary-keyword", "displayName": "Set Primary Keyword" },
+    { "template": "SEO", "stage": "Keyword Identification", "stageIndex": 1, "stepIndex": 4, "step": "keyword-cannibalization-check", "displayName": "Keyword Cannibalization Check" },
+    { "template": "SEO", "stage": "Creative Direction", "stageIndex": 2, "stepIndex": 5, "step": "base-page-template", "displayName": "Base Page Template" },
+    { "template": "SEO", "stage": "Creative Direction", "stageIndex": 2, "stepIndex": 6, "step": "visual-style", "displayName": "Visual Style" },
+    { "template": "SEO", "stage": "Creative Direction", "stageIndex": 2, "stepIndex": 7, "step": "color-palette", "displayName": "Color Palette" },
+    { "template": "SEO", "stage": "Brief Generation", "stageIndex": 3, "stepIndex": 8, "step": "generate-brief", "displayName": "Generate Brief" },
+    { "template": "SEO", "stage": "Brief Generation", "stageIndex": 3, "stepIndex": 9, "step": "destination-url", "displayName": "Destination URL" },
+    { "template": "SEO", "stage": "Brief Generation", "stageIndex": 3, "stepIndex": 10, "step": "links-and-ctas", "displayName": "Links and Call-to-actions" },
+    { "template": "SEO", "stage": "Brief Generation", "stageIndex": 3, "stepIndex": 11, "step": "finalize-brief", "displayName": "Finalize Brief" },
+    { "template": "SEO", "stage": "Page Generation", "stageIndex": 4, "stepIndex": 12, "step": "generate-page", "displayName": "Generate Page" },
+    { "template": "SEO", "stage": "Page Generation", "stageIndex": 4, "stepIndex": 13, "step": "page-preview", "displayName": "Page Preview" },
+    { "template": "SEO", "stage": "Page Generation", "stageIndex": 4, "stepIndex": 14, "step": "pre-flight-check", "displayName": "Pre-flight Check" },
+    { "template": "SEO", "stage": "Page Generation", "stageIndex": 4, "stepIndex": 15, "step": "page-approvals", "displayName": "Page Approvals" },
+    { "template": "SEO", "stage": "Asset Generation", "stageIndex": 5, "stepIndex": 16, "step": "generate-assets", "displayName": "Generate Assets" },
+    { "template": "SEO", "stage": "Asset Generation", "stageIndex": 5, "stepIndex": 17, "step": "assets-rendering", "displayName": "Assets Rendering" },
+    { "template": "SEO", "stage": "Asset Generation", "stageIndex": 5, "stepIndex": 18, "step": "asset-approvals", "displayName": "Asset Approvals" },
+    { "template": "SEO", "stage": "Page Localization", "stageIndex": 6, "stepIndex": 19, "step": "localize-page", "displayName": "Localize Page" },
+    { "template": "SEO", "stage": "Final Review", "stageIndex": 7, "stepIndex": 20, "step": "final-review-and-publish", "displayName": "Final Review and Publish" }
+  ]
+}
