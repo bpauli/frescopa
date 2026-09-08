@@ -22,23 +22,13 @@ function fmtDate(iso) {
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString();
 }
 
-// Muted background per PRD status for the stage badge (light meta area).
-const STATUS_BG = {
-  Locked: '#e6e6e6',
-  'Not Started': '#e3f0ff',
-  'In Progress': '#fff3cd',
-  Complete: '#d7f0dd',
-  Approved: '#c3e6cb',
-};
-
 // A small pill for an overall/meta status.
 function statusBadge(status) {
   if (!status) return '';
-  const bg = STATUS_BG[status] ?? '#eee';
-  return html`<span style="background:${bg}; color:#222; border-radius:1rem; padding:.1rem .6rem; font-size:.8rem; white-space:nowrap;">${status}</span>`;
+  return html`<span class="cw-badge">${status}</span>`;
 }
 
-// Stage-bar (dark) status glyph + icon-disc background, per PRD status.
+// Per-status glyph + disc modifier class for the stage bar.
 const STAGE_ICON = {
   'Not Started': '○',
   'In Progress': '◐',
@@ -46,12 +36,12 @@ const STAGE_ICON = {
   Approved: '★',
   Locked: '🔒',
 };
-const ICON_BG = {
-  'Not Started': '#3a4a5a',
-  'In Progress': '#5a5326',
-  Complete: '#2f5a3a',
-  Approved: '#2f5a4a',
-  Locked: '#333',
+const DISC_MOD = {
+  'Not Started': 'is-not-started',
+  'In Progress': 'is-in-progress',
+  Complete: 'is-complete',
+  Approved: 'is-approved',
+  Locked: 'is-locked',
 };
 
 // Where to land when a project opens: the furthest unlocked stage.
@@ -246,23 +236,23 @@ class DaCoworkerProject extends LitElement {
   // --- render: list ---
   renderList() {
     return html`
-      <div style="display:flex; justify-content:space-between; align-items:center; gap:1rem;">
+      <div class="cw-header">
         <h1>Coworker Projects</h1>
-        <button @click=${() => this.showWizard()}>Add Project</button>
+        <button class="nx-btn-accent" @click=${() => this.showWizard()}>Add Project</button>
       </div>
       ${this.renderProjects()}`;
   }
 
   renderProjects() {
-    if (this._loadingProjects) return html`<p>Loading projects...</p>`;
-    if (!this._projects.length) return html`<p>No projects yet. Add one to get started.</p>`;
+    if (this._loadingProjects) return html`<p class="cw-muted">Loading projects...</p>`;
+    if (!this._projects.length) return html`<p class="cw-muted">No projects yet. Add one to get started.</p>`;
     return html`
-      <ul class="projects" style="list-style:none; padding:0;">
+      <ul class="cw-projects">
         ${this._projects.map((p) => html`
-          <li style="border:1px solid #ddd; border-radius:.5rem; padding:.75rem 1rem; margin:.5rem 0;">
-            <a href="#" @click=${(e) => { e.preventDefault(); this.showProject(p.slug); }}
-              style="font-weight:600; text-decoration:none;">${p.title}</a>
-            <div style="color:#666; font-size:.9rem;">
+          <li class="cw-project">
+            <a class="cw-project-title" href="#"
+              @click=${(e) => { e.preventDefault(); this.showProject(p.slug); }}>${p.title}</a>
+            <div class="cw-project-meta">
               ${p.templateId ? html`Template: <code>${p.templateId}</code>` : ''}
               ${p.createdAt ? html` &middot; ${fmtDate(p.createdAt)}` : ''}
               ${p.status ? html` &middot; ${p.status}` : ''}
@@ -274,19 +264,19 @@ class DaCoworkerProject extends LitElement {
   // --- render: wizard ---
   renderIndicator() {
     return html`
-      <ol class="steps">
+      <ol class="cw-steps">
         ${STEPS.map((label, i) => html`<li class=${this.stepClass(i)}>${i + 1}. ${label}</li>`)}
       </ol>`;
   }
 
   renderTemplateStep() {
-    if (this._loadingTpls) return html`<p>Loading templates...</p>`;
-    if (!this._templates.length) return html`<p>No templates found for this site.</p>`;
+    if (this._loadingTpls) return html`<p class="cw-muted">Loading templates...</p>`;
+    if (!this._templates.length) return html`<p class="cw-muted">No templates found for this site.</p>`;
     return html`
       <fieldset>
         <legend>Choose a template</legend>
         ${this._templates.map((t) => html`
-          <label style="display:block; margin:.25rem 0;">
+          <label class="cw-radio">
             <input type="radio" name="tpl"
               .checked=${this._values.templateId === t.name}
               @change=${() => this.setValues({ templateId: t.name, templatePath: t.url })} />
@@ -299,17 +289,17 @@ class DaCoworkerProject extends LitElement {
     switch (this._step) {
       case 0:
         return html`
-          <label style="display:block; margin:.5rem 0;">Project name
+          <label class="cw-field">Project name
             <input type="text" .value=${this._values.title}
               @input=${(e) => this.setValues({ title: e.target.value })}
-              placeholder="My SEO Page" style="display:block; width:100%;" />
+              placeholder="My SEO Page" />
           </label>
-          <label style="display:block; margin:.5rem 0;">What is this project for?
+          <label class="cw-field">What is this project for?
             <textarea .value=${this._values.description}
               @input=${(e) => this.setValues({ description: e.target.value })}
-              rows="3" style="display:block; width:100%;"></textarea>
+              rows="3"></textarea>
           </label>
-          <p>Path: <code>/${this.context?.org}/${this.context?.repo}/projects/${this.slug || '...'}</code></p>`;
+          <p class="cw-muted">Path: <code>/${this.context?.org}/${this.context?.repo}/projects/${this.slug || '...'}</code></p>`;
       case 1:
         return this.renderTemplateStep();
       default:
@@ -327,10 +317,10 @@ class DaCoworkerProject extends LitElement {
   renderActions() {
     const last = this._step === STEPS.length - 1;
     return html`
-      <button ?disabled=${this._step === 0 || this._creating} @click=${() => this.back()}>Back</button>
+      <button class="nx-action-btn" ?disabled=${this._step === 0 || this._creating} @click=${() => this.back()}>Back</button>
       ${last
-    ? html`<button ?disabled=${this._creating} @click=${() => this.create()}>${this._creating ? 'Creating...' : 'Create project'}</button>`
-    : html`<button ?disabled=${!this.stepValid} @click=${() => this.next()}>Next</button>`}`;
+    ? html`<button class="nx-btn-accent" ?disabled=${this._creating} @click=${() => this.create()}>${this._creating ? 'Creating...' : 'Create project'}</button>`
+    : html`<button class="nx-btn-accent" ?disabled=${!this.stepValid} @click=${() => this.next()}>Next</button>`}`;
   }
 
   renderSuccess() {
@@ -338,61 +328,53 @@ class DaCoworkerProject extends LitElement {
     return html`
       <p>Created <code>projects/${slug}.json</code></p>
       ${editUrl ? html`<p><a href=${editUrl} target="_blank" rel="noopener">Open the record in DA</a></p>` : ''}
-      <div style="display:flex; gap:.5rem; flex-wrap:wrap;">
-        <button @click=${() => this.showProject(slug)}>View project</button>
-        <button @click=${() => this.showList()}>Back to projects</button>
-        <button @click=${() => this.resetWizard()}>Create another</button>
+      <div class="cw-actions">
+        <button class="nx-btn-accent" @click=${() => this.showProject(slug)}>View project</button>
+        <button class="nx-action-btn" @click=${() => this.showList()}>Back to projects</button>
+        <button class="nx-action-btn" @click=${() => this.resetWizard()}>Create another</button>
       </div>`;
   }
 
   renderWizard() {
     return html`
-      <div style="display:flex; justify-content:space-between; align-items:center; gap:1rem;">
+      <div class="cw-header">
         <h1>Add Project</h1>
-        ${this._result ? '' : html`<button @click=${() => this.showList()}>Cancel</button>`}
+        ${this._result ? '' : html`<button class="nx-action-btn" @click=${() => this.showList()}>Cancel</button>`}
       </div>
       ${this._result ? this.renderSuccess() : html`
         ${this.renderIndicator()}
         ${this.renderStep()}
-        <div style="margin-top:1.5rem; display:flex; gap:.5rem; flex-wrap:wrap;">
+        <div class="cw-actions">
           ${this.renderActions()}
         </div>`}
-      ${this._error ? html`<p style="color:#b5121b;">Error: ${this._error}</p>` : ''}`;
+      ${this._error ? html`<p class="cw-error">Error: ${this._error}</p>` : ''}`;
   }
 
   // --- render: project (stage-execution shell) ---
   // One node in the top progress bar. Unlocked nodes are buttons that open the
   // stage; a locked node collapses to a lock disc (matches the demo shell).
   renderStageNode(s) {
-    const locked = s.status === 'Locked';
-    const active = s.stageIndex === this._activeStage;
-    const disc = `display:inline-flex; align-items:center; justify-content:center;
-      width:1.9rem; height:1.9rem; border-radius:50%; flex:0 0 auto;
-      background:${ICON_BG[s.status] ?? '#333'}; font-size:.9rem;`;
-    if (locked) {
-      return html`<div title="Locked until the previous stage is complete"
-        style="display:flex; align-items:center; padding:.4rem .6rem; opacity:.55;">
-        <span style=${disc}>${STAGE_ICON.Locked}</span>
+    const disc = html`<span class="cw-disc ${DISC_MOD[s.status] ?? ''}">${STAGE_ICON[s.status] ?? '○'}</span>`;
+    if (s.status === 'Locked') {
+      return html`<div class="cw-stage is-locked" title="Locked until the previous stage is complete">
+        ${disc}
       </div>`;
     }
-    return html`<button @click=${() => this.openStage(s.stageIndex)}
-      style="display:flex; align-items:center; gap:.6rem; border:none; cursor:pointer;
-        border-radius:.6rem; padding:.4rem .7rem; color:#eee; text-align:left;
-        background:${active ? '#3b3a36' : 'transparent'};">
-      <span style=${disc}>${STAGE_ICON[s.status] ?? '○'}</span>
-      <span style="display:flex; flex-direction:column; line-height:1.15;">
-        <strong style="font-size:.9rem;">${s.stage}</strong>
-        <span style="font-size:.72rem; color:#aaa;">Stage ${s.stageIndex} &middot; ${s.status}</span>
+    const active = s.stageIndex === this._activeStage;
+    return html`<button class="cw-stage ${active ? 'is-active' : ''}" @click=${() => this.openStage(s.stageIndex)}>
+      ${disc}
+      <span class="cw-stage-label">
+        <span class="cw-stage-name">${s.stage}</span>
+        <span class="cw-stage-sub">Stage ${s.stageIndex} &middot; ${s.status}</span>
       </span>
     </button>`;
   }
 
   renderStageBar(stages) {
     return html`
-      <div class="stage-bar" style="display:flex; align-items:stretch; gap:.15rem;
-        overflow-x:auto; background:#1f1d1a; border-radius:.75rem; padding:.4rem; margin:1rem 0 1.5rem;">
+      <div class="cw-stagebar">
         ${stages.map((s, i) => html`
-          ${i > 0 ? html`<span style="align-self:center; color:#666; padding:0 .1rem;">&rsaquo;</span>` : ''}
+          ${i > 0 ? html`<span class="cw-chevron">&rsaquo;</span>` : ''}
           ${this.renderStageNode(s)}`)}
       </div>`;
   }
@@ -401,58 +383,56 @@ class DaCoworkerProject extends LitElement {
   // gating + persistence until the real per-stage panels land (tickets #16+).
   renderStageControl(stage) {
     const set = (status) => () => this.changeStage(stage.stageIndex, status);
-    const btn = 'padding:.4rem .9rem; border-radius:.4rem; border:1px solid #555; cursor:pointer;';
     let controls;
     if (stage.status === 'Not Started') {
-      controls = html`<button ?disabled=${this._savingStage} @click=${set('In Progress')}
-        style="${btn} background:#2f5a3a; color:#fff; border-color:#2f5a3a;">Start stage</button>`;
+      controls = html`<button class="nx-btn-accent" ?disabled=${this._savingStage}
+        @click=${set('In Progress')}>Start stage</button>`;
     } else if (stage.status === 'In Progress') {
       controls = html`
-        <button ?disabled=${this._savingStage} @click=${set('Complete')}
-          style="${btn} background:#2f5a3a; color:#fff; border-color:#2f5a3a;">Mark complete</button>
-        <button ?disabled=${this._savingStage} @click=${set('Not Started')}
-          style="${btn} background:transparent; color:#ccc;">Reset</button>`;
+        <button class="nx-btn-accent" ?disabled=${this._savingStage}
+          @click=${set('Complete')}>Mark complete</button>
+        <button class="nx-action-btn" ?disabled=${this._savingStage}
+          @click=${set('Not Started')}>Reset</button>`;
     } else {
-      controls = html`<button ?disabled=${this._savingStage} @click=${set('In Progress')}
-        style="${btn} background:transparent; color:#ccc;">Reopen stage</button>`;
+      controls = html`<button class="nx-action-btn" ?disabled=${this._savingStage}
+        @click=${set('In Progress')}>Reopen stage</button>`;
     }
     return html`
-      <div style="display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; margin-top:1rem;">
+      <div class="cw-controls">
         ${controls}
-        ${this._savingStage ? html`<span style="color:#aaa; font-size:.85rem;">Saving...</span>` : ''}
+        ${this._savingStage ? html`<span class="cw-saving"><span class="nx-loading-spinner"></span>Saving...</span>` : ''}
       </div>`;
   }
 
   renderStagePanel(stages) {
     const stage = stages.find((s) => s.stageIndex === this._activeStage);
     if (!stage) return '';
-    const card = 'background:#1f1d1a; border:1px solid #33312d; border-radius:.75rem; padding:1.25rem;';
     if (stage.status === 'Locked') {
-      return html`<div style=${card}>
-        <p style="color:#aaa; margin:0;">This stage is locked. Complete the previous stage to continue.</p>
+      return html`<div class="cw-card">
+        <p class="cw-muted" style="margin:0;">This stage is locked. Complete the previous stage to continue.</p>
       </div>`;
     }
     return html`
-      <h2 style="color:#fff; margin:0 0 .25rem;">Stage ${stage.stageIndex}: ${stage.stage}</h2>
-      <p style="color:#aaa; margin:0 0 1rem;">
+      <h2 class="cw-panel-title">Stage ${stage.stageIndex}: ${stage.stage}</h2>
+      <p class="cw-panel-note">
         Placeholder panel - the ${stage.stage} tools arrive in a later ticket.
       </p>
-      <div style=${card}>
-        <ul style="margin:0; padding-left:1.2rem; color:#ddd;">
-          ${stage.steps.map((st) => html`<li style="margin:.15rem 0;">${st.displayName}</li>`)}
+      <div class="cw-card">
+        <ul class="cw-steps-list">
+          ${stage.steps.map((st) => html`<li>${st.displayName}</li>`)}
         </ul>
         ${this.renderStageControl(stage)}
-        ${this._stageError ? html`<p style="color:#ff8a8a; margin:.75rem 0 0;">${this._stageError}</p>` : ''}
+        ${this._stageError ? html`<p class="cw-error" style="margin:.75rem 0 0;">${this._stageError}</p>` : ''}
       </div>`;
   }
 
   renderProjectBody() {
-    if (this._loadingProject) return html`<p>Loading project...</p>`;
-    if (!this._project) return html`<p>Project not found.</p>`;
+    if (this._loadingProject) return html`<p class="cw-muted">Loading project...</p>`;
+    if (!this._project) return html`<p class="cw-muted">Project not found.</p>`;
     const { meta, stages } = this._project;
     return html`
-      ${meta.description ? html`<p style="color:#ccc; margin:.25rem 0;">${meta.description}</p>` : ''}
-      <div style="color:#999; font-size:.85rem; display:flex; gap:1rem; flex-wrap:wrap; align-items:center;">
+      ${meta.description ? html`<p>${meta.description}</p>` : ''}
+      <div class="cw-meta">
         ${meta.templateId ? html`<span>Template: <code>${meta.templateId}</code></span>` : ''}
         ${meta.status ? html`<span>${statusBadge(meta.status)}</span>` : ''}
         ${meta.createdAt ? html`<span>Created ${fmtDate(meta.createdAt)}</span>` : ''}
@@ -464,10 +444,10 @@ class DaCoworkerProject extends LitElement {
   renderProject() {
     const title = this._project?.meta?.title ?? this._selectedSlug;
     return html`
-      <div style="background:#141312; color:#eee; border-radius:1rem; padding:1.5rem 1.75rem;">
-        <div style="display:flex; justify-content:space-between; align-items:center; gap:1rem;">
-          <h1 style="color:#fff; margin:0;">${title}</h1>
-          <button @click=${() => this.showList()}>Back to projects</button>
+      <div class="cw-runner">
+        <div class="cw-header">
+          <h1>${title}</h1>
+          <button class="nx-action-btn" @click=${() => this.showList()}>Back to projects</button>
         </div>
         ${this.renderProjectBody()}
       </div>`;
@@ -478,10 +458,7 @@ class DaCoworkerProject extends LitElement {
     let wide = false;
     if (this._view === 'wizard') body = this.renderWizard();
     else if (this._view === 'project') { body = this.renderProject(); wide = true; } else body = this.renderList();
-    return html`
-      <main style="font-family: system-ui, sans-serif; padding: 2rem; max-width: ${wide ? '72rem' : '40rem'};">
-        ${body}
-      </main>`;
+    return html`<main class="cw-app ${wide ? 'cw-wide' : ''}">${body}</main>`;
   }
 }
 

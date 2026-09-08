@@ -1,0 +1,289 @@
+/*
+ * Coworker Projects app styles, on the da-nx (nx2) Spectrum 2 system.
+ * Tokens (--s2-*) and .nx-btn-* classes come from the hosted nx2 stylesheets
+ * linked in coworker-project.html. color-scheme sets which value every
+ * light-dark() token resolves to - no hardcoded hex.
+ * All selectors are scoped under the da-coworker-project element.
+ */
+
+da-coworker-project {
+  color-scheme: light;
+  display: block;
+}
+
+da-coworker-project .cw-app {
+  font-family: var(--s2-font-family);
+  color: var(--s2-gray-900);
+  background: var(--s2-gray-50);
+  padding: var(--s2-spacing-500);
+  max-width: 40rem;
+  margin: 0 auto;
+}
+
+da-coworker-project .cw-app.cw-wide {
+  max-width: 72rem;
+}
+
+da-coworker-project .cw-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--s2-spacing-300);
+}
+
+da-coworker-project h1 {
+  font-size: var(--s2-heading-size-xl);
+  margin: 0;
+}
+
+da-coworker-project .cw-muted {
+  color: var(--s2-gray-600);
+  font-size: var(--s2-component-s-regular-font-size);
+}
+
+da-coworker-project code {
+  font-family: monospace;
+  background: var(--s2-gray-100);
+  border-radius: var(--s2-corner-radius-75);
+  padding: 0 var(--s2-spacing-75);
+}
+
+/* --- list --- */
+da-coworker-project .cw-projects {
+  list-style: none;
+  padding: 0;
+}
+
+da-coworker-project .cw-project {
+  border: 1px solid var(--s2-gray-200);
+  border-radius: var(--s2-corner-radius-300);
+  padding: var(--s2-spacing-200) var(--s2-spacing-300);
+  margin: var(--s2-spacing-100) 0;
+}
+
+da-coworker-project .cw-project-title {
+  font-weight: var(--s2-component-m-bold-font-weight);
+  text-decoration: none;
+  color: var(--s2-gray-900);
+}
+
+da-coworker-project .cw-project-meta {
+  color: var(--s2-gray-600);
+  font-size: var(--s2-component-s-regular-font-size);
+  margin-top: var(--s2-spacing-75);
+}
+
+/* --- wizard --- */
+da-coworker-project .cw-steps {
+  display: flex;
+  gap: var(--s2-spacing-300);
+  list-style: none;
+  padding: 0;
+  margin: var(--s2-spacing-400) 0;
+}
+
+da-coworker-project .cw-steps li {
+  color: var(--s2-gray-600);
+  font-size: var(--s2-component-s-regular-font-size);
+}
+
+da-coworker-project .cw-steps li.active {
+  color: var(--s2-gray-900);
+  font-weight: var(--s2-component-s-bold-font-weight);
+}
+
+da-coworker-project .cw-steps li.done {
+  color: var(--s2-blue-900);
+}
+
+da-coworker-project .cw-field {
+  display: block;
+  margin: var(--s2-spacing-200) 0;
+}
+
+da-coworker-project .cw-field input[type="text"],
+da-coworker-project .cw-field textarea {
+  display: block;
+  width: 100%;
+  margin-top: var(--s2-spacing-75);
+  padding: var(--s2-spacing-100);
+  font: inherit;
+  color: var(--s2-gray-900);
+  background: var(--s2-gray-25);
+  border: 1px solid var(--s2-gray-400);
+  border-radius: var(--s2-corner-radius-200);
+  box-sizing: border-box;
+}
+
+da-coworker-project fieldset {
+  border: 1px solid var(--s2-gray-300);
+  border-radius: var(--s2-corner-radius-200);
+}
+
+da-coworker-project .cw-radio {
+  display: flex;
+  align-items: center;
+  gap: var(--s2-spacing-100);
+  margin: var(--s2-spacing-75) 0;
+}
+
+da-coworker-project .cw-actions {
+  margin-top: var(--s2-spacing-400);
+  display: flex;
+  gap: var(--s2-spacing-100);
+  flex-wrap: wrap;
+}
+
+da-coworker-project .cw-error {
+  color: var(--s2-red-900);
+}
+
+/* --- project: stage-execution shell --- */
+da-coworker-project .cw-runner {
+  background: var(--s2-gray-75);
+  border: 1px solid var(--s2-gray-200);
+  border-radius: var(--s2-corner-radius-500);
+  padding: var(--s2-spacing-400) var(--s2-spacing-500);
+}
+
+da-coworker-project .cw-meta {
+  color: var(--s2-gray-600);
+  font-size: var(--s2-component-s-regular-font-size);
+  display: flex;
+  gap: var(--s2-spacing-300);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+da-coworker-project .cw-badge {
+  border-radius: var(--s2-corner-radius-800);
+  padding: 0 var(--s2-spacing-200);
+  font-size: var(--s2-component-s-regular-font-size);
+  white-space: nowrap;
+  background: var(--s2-gray-200);
+  color: var(--s2-gray-900);
+}
+
+/* stage bar */
+da-coworker-project .cw-stagebar {
+  display: flex;
+  align-items: stretch;
+  gap: var(--s2-spacing-50);
+  overflow-x: auto;
+  background: var(--s2-gray-100);
+  border-radius: var(--s2-corner-radius-400);
+  padding: var(--s2-spacing-75);
+  margin: var(--s2-spacing-300) 0 var(--s2-spacing-400);
+}
+
+da-coworker-project .cw-chevron {
+  align-self: center;
+  color: var(--s2-gray-500);
+  padding: 0 var(--s2-spacing-50);
+}
+
+da-coworker-project .cw-stage {
+  display: flex;
+  align-items: center;
+  gap: var(--s2-spacing-100);
+  border: none;
+  cursor: pointer;
+  border-radius: var(--s2-corner-radius-300);
+  padding: var(--s2-spacing-75) var(--s2-spacing-200);
+  color: var(--s2-gray-900);
+  text-align: left;
+  background: transparent;
+}
+
+da-coworker-project .cw-stage:hover:not(:disabled) {
+  background: var(--s2-gray-200);
+}
+
+da-coworker-project .cw-stage.is-active {
+  background: var(--s2-gray-300);
+}
+
+da-coworker-project .cw-stage.is-locked {
+  cursor: default;
+  opacity: 0.55;
+  padding: var(--s2-spacing-75) var(--s2-spacing-100);
+}
+
+da-coworker-project .cw-disc {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  font-size: var(--s2-component-m-regular-font-size);
+  background: var(--s2-gray-400);
+  color: var(--s2-gray-25);
+}
+
+da-coworker-project .cw-disc.is-not-started { background: var(--s2-gray-500); }
+da-coworker-project .cw-disc.is-in-progress { background: var(--s2-blue-900); }
+da-coworker-project .cw-disc.is-complete { background: var(--s2-green-900); }
+da-coworker-project .cw-disc.is-approved { background: var(--s2-green-1000); }
+da-coworker-project .cw-disc.is-locked { background: var(--s2-gray-300); }
+
+da-coworker-project .cw-stage-label {
+  display: flex;
+  flex-direction: column;
+  line-height: var(--s2-component-s-regular-line-height);
+}
+
+da-coworker-project .cw-stage-name {
+  font-size: var(--s2-component-m-regular-font-size);
+  font-weight: var(--s2-component-m-bold-font-weight);
+}
+
+da-coworker-project .cw-stage-sub {
+  font-size: var(--s2-component-xs-regular-font-size);
+  color: var(--s2-gray-600);
+}
+
+/* panel */
+da-coworker-project .cw-panel-title {
+  font-size: var(--s2-heading-size-l);
+  margin: 0 0 var(--s2-spacing-75);
+}
+
+da-coworker-project .cw-panel-note {
+  color: var(--s2-gray-600);
+  margin: 0 0 var(--s2-spacing-300);
+}
+
+da-coworker-project .cw-card {
+  background: var(--s2-gray-100);
+  border: 1px solid var(--s2-gray-200);
+  border-radius: var(--s2-corner-radius-400);
+  padding: var(--s2-spacing-400);
+}
+
+da-coworker-project .cw-steps-list {
+  margin: 0;
+  padding-left: var(--s2-spacing-400);
+  color: var(--s2-gray-800);
+}
+
+da-coworker-project .cw-steps-list li {
+  margin: var(--s2-spacing-50) 0;
+}
+
+da-coworker-project .cw-controls {
+  display: flex;
+  gap: var(--s2-spacing-100);
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: var(--s2-spacing-300);
+}
+
+da-coworker-project .cw-saving {
+  display: flex;
+  align-items: center;
+  gap: var(--s2-spacing-100);
+  color: var(--s2-gray-600);
+  font-size: var(--s2-component-s-regular-font-size);
+}
