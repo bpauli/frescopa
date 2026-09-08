@@ -65,3 +65,27 @@ export async function readProject(context, daFetch, slug) {
     return null;
   }
 }
+
+/**
+ * Parse a project record into a view model: the meta row plus stages ordered by
+ * stageIndex, each with its ordered steps attached from the steps sheet.
+ * @returns {{meta: object, stages: Array<{stage, stageIndex, status, steps}>} | null}
+ */
+export function parseProject(record) {
+  if (!record || typeof record !== 'object') return null;
+  const meta = metaRow(record);
+  const stageRows = record.stages?.data ?? [];
+  const stepRows = record.steps?.data ?? [];
+  const stages = stageRows
+    .map((s) => ({
+      stage: s.stage,
+      stageIndex: Number(s.stageIndex),
+      status: s.status || '',
+      steps: stepRows
+        .filter((st) => Number(st.stageIndex) === Number(s.stageIndex))
+        .map((st) => ({ step: st.step, displayName: st.displayName, stepIndex: Number(st.stepIndex) }))
+        .sort((a, b) => a.stepIndex - b.stepIndex),
+    }))
+    .sort((a, b) => a.stageIndex - b.stageIndex);
+  return { meta, stages };
+}

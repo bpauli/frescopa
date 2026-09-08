@@ -2,7 +2,7 @@ import DA_SDK from 'https://da.live/nx/utils/sdk.js';
 import { LitElement, html } from 'da-lit';
 import { fetchTemplates } from './templates.js';
 import { createProject, slugify } from './project.js';
-import { listProjects } from './projects.js';
+import { listProjects, readProject, parseProject } from './projects.js';
 
 // Coworker Projects app. Round one routes between three views:
 //   list    - the projects landing (the front door)
@@ -20,6 +20,15 @@ function fmtDate(iso) {
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString();
 }
 
+// Muted background per PRD status for the stage badge.
+const STATUS_BG = {
+  Locked: '#e6e6e6',
+  'Not Started': '#e3f0ff',
+  'In Progress': '#fff3cd',
+  Complete: '#d7f0dd',
+  Approved: '#c3e6cb',
+};
+
 class DaCoworkerProject extends LitElement {
   static properties = {
     context: { attribute: false },
@@ -29,6 +38,8 @@ class DaCoworkerProject extends LitElement {
     _projects: { state: true },
     _loadingProjects: { state: true },
     _selectedSlug: { state: true },
+    _project: { state: true },
+    _loadingProject: { state: true },
     _step: { state: true },
     _values: { state: true },
     _templates: { state: true },
@@ -47,6 +58,8 @@ class DaCoworkerProject extends LitElement {
     this._projects = [];
     this._loadingProjects = true;
     this._selectedSlug = null;
+    this._project = null;
+    this._loadingProject = false;
     this._step = 0;
     this._values = { title: '', description: '', templateId: '', templatePath: '' };
     this._templates = [];
@@ -93,7 +106,23 @@ class DaCoworkerProject extends LitElement {
 
   showWizard() { this.resetWizard(); this._view = 'wizard'; }
 
-  showProject(slug) { this._selectedSlug = slug; this._view = 'project'; }
+  showProject(slug) {
+    this._selectedSlug = slug;
+    this._view = 'project';
+    this.loadProject(slug);
+  }
+
+  async loadProject(slug) {
+    this._loadingProject = true;
+    this._project = null;
+    try {
+      this._project = parseProject(await readProject(this.context, this.actions?.daFetch, slug));
+    } catch {
+      this._project = null;
+    } finally {
+      this._loadingProject = false;
+    }
+  }
 
   resetWizard() {
     this._step = 0;
@@ -253,15 +282,46 @@ class DaCoworkerProject extends LitElement {
       ${this._error ? html`<p style="color:#b5121b;">Error: ${this._error}</p>` : ''}`;
   }
 
-  // --- render: project (stub; ticket #9 fills this in) ---
+  // --- render: project (read-only) ---
+  statusBadge(status) {
+    if (!status) return '';
+    const bg = STATUS_BG[status] ?? '#eee';
+    return html`<span style="background:${bg}; border-radius:1rem; padding:.1rem .6rem; font-size:.8rem; white-space:nowrap;">${status}</span>`;
+  }
+
+  renderProjectBody() {
+    if (this._loadingProject) return html`<p>Loading project...</p>`;
+    if (!this._project) return html`<p>Project not found.</p>`;
+    const { meta, stages } = this._project;
+    return html`
+      ${meta.description ? html`<p>${meta.description}</p>` : ''}
+      <dl class="meta" style="color:#555; font-size:.9rem;">
+        ${meta.templateId ? html`<div>Template: <code>${meta.templateId}</code></div>` : ''}
+        ${meta.status ? html`<div>Status: ${meta.status}</div>` : ''}
+        ${meta.createdAt ? html`<div>Created: ${fmtDate(meta.createdAt)}</div>` : ''}
+      </dl>
+      <ol class="stages" style="list-style:none; padding:0;">
+        ${stages.map((s) => html`
+          <li style="border:1px solid #ddd; border-radius:.5rem; padding:.75rem 1rem; margin:.5rem 0;">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:1rem;">
+              <strong>${s.stageIndex}. ${s.stage}</strong>
+              ${this.statusBadge(s.status)}
+            </div>
+            <ul style="margin:.5rem 0 0; color:#444;">
+              ${s.steps.map((st) => html`<li>${st.displayName}</li>`)}
+            </ul>
+          </li>`)}
+      </ol>`;
+  }
+
   renderProject() {
-    const p = this._projects.find((x) => x.slug === this._selectedSlug);
+    const title = this._project?.meta?.title ?? this._selectedSlug;
     return html`
       <div style="display:flex; justify-content:space-between; align-items:center; gap:1rem;">
-        <h1>${p?.title ?? this._selectedSlug}</h1>
+        <h1>${title}</h1>
         <button @click=${() => this.showList()}>Back to projects</button>
       </div>
-      <p><em>The read-only project view (stages and steps) arrives in the next ticket.</em></p>`;
+      ${this.renderProjectBody()}`;
   }
 
   render() {
