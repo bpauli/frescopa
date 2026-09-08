@@ -205,7 +205,7 @@ da-coworker-project .cw-stage.is-active {
 
 da-coworker-project .cw-stage.is-locked {
   cursor: default;
-  opacity: 0.55;
+  opacity: 0.85;
   padding: var(--s2-spacing-75) var(--s2-spacing-100);
 }
 
@@ -226,7 +226,11 @@ da-coworker-project .cw-disc.is-not-started { background: var(--s2-gray-500); }
 da-coworker-project .cw-disc.is-in-progress { background: var(--s2-blue-900); }
 da-coworker-project .cw-disc.is-complete { background: var(--s2-green-900); }
 da-coworker-project .cw-disc.is-approved { background: var(--s2-green-1000); }
-da-coworker-project .cw-disc.is-locked { background: var(--s2-gray-300); }
+
+da-coworker-project .cw-disc.is-locked {
+  background: var(--s2-gray-500);
+  color: var(--s2-gray-100);
+}
 
 da-coworker-project .cw-stage-label {
   display: flex;
@@ -488,4 +492,10 @@ da-coworker-project .cw-cn-card-actions {
 
 da-coworker-project .cw-cn-card-actions a {
   text-decoration: none;
+}
+
+da-coworker-project .cw-stage-done {
+  color: var(--s2-green-1100);
+  font-weight: var(--s2-component-m-bold-font-weight);
+  font-size: var(--s2-component-s-regular-font-size);
 }

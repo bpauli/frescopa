@@ -52,6 +52,15 @@ function stageKey(name) {
   return (name || '').trim().toLowerCase().replace(/\s+/g, '-');
 }
 
+// Stage 1 is completable once a Primary keyword is set and the cannibalization
+// check has run (flagged competitors carry the AI reason, i.e. acknowledged).
+// Returns what is still missing so the UI can hint. (ticket #18)
+function stage1Readiness(keywords, cannibalization) {
+  if (!primaryOf(keywords || [])) return { ready: false, reason: 'Set a primary keyword.' };
+  if (!cannibalization?.checkedAt) return { ready: false, reason: 'Run the cannibalization check.' };
+  return { ready: true, reason: '' };
+}
+
 // Where to land when a project opens: the furthest unlocked stage.
 function defaultActiveStage(stages) {
   const open = stages.filter((s) => s.status !== 'Locked');
@@ -161,6 +170,7 @@ class DaCoworkerProject extends LitElement {
         this._activeStage = defaultActiveStage(parsed.stages);
       }
       this._project = parsed;
+      this.autoStartStage1();
     } catch {
       this._project = null;
     } finally {
@@ -171,7 +181,18 @@ class DaCoworkerProject extends LitElement {
   // Open an unlocked stage's panel.
   openStage(stageIndex) {
     const stage = this._project?.stages.find((s) => s.stageIndex === stageIndex);
-    if (stage && stage.status !== 'Locked') this._activeStage = stageIndex;
+    if (stage && stage.status !== 'Locked') {
+      this._activeStage = stageIndex;
+      this.autoStartStage1();
+    }
+  }
+
+  // Stage 1 becomes In Progress the first time it is opened (ticket #18).
+  autoStartStage1() {
+    const s = this._project?.stages.find((st) => stageKey(st.stage) === 'keyword-identification');
+    if (s && s.stageIndex === this._activeStage && s.status === 'Not Started' && !this._savingStage) {
+      this.changeStage(s.stageIndex, 'In Progress');
+    }
   }
 
   // Persist a stage status change, re-gate, and refresh the view model.
@@ -412,6 +433,31 @@ class DaCoworkerProject extends LitElement {
       </div>`;
   }
 
+  // Stage 1's completion control: Complete only when the readiness conditions
+  // are met; Reopen re-locks Stage 2. (ticket #18)
+  renderStage1Control(stage) {
+    const saving = this._savingStage
+      ? html`<span class="cw-saving"><span class="nx-loading-spinner"></span>Saving...</span>` : '';
+    if (stage.status === 'Complete' || stage.status === 'Approved') {
+      return html`
+        <div class="cw-controls">
+          <span class="cw-stage-done">&#10003; Stage 1 complete - Stage 2 is unlocked.</span>
+          <button class="nx-action-btn" ?disabled=${this._savingStage}
+            @click=${() => this.changeStage(stage.stageIndex, 'In Progress')}>Reopen</button>
+          ${saving}
+        </div>`;
+    }
+    const { keywords, cannibalization } = this._project;
+    const { ready, reason } = stage1Readiness(keywords, cannibalization);
+    return html`
+      <div class="cw-controls">
+        <button class="nx-btn-accent" ?disabled=${!ready || this._savingStage}
+          @click=${() => this.changeStage(stage.stageIndex, 'Complete')}>Complete Stage 1</button>
+        ${!ready ? html`<span class="cw-muted">${reason}</span>` : ''}
+        ${saving}
+      </div>`;
+  }
+
   renderStagePanel(stages) {
     const stage = stages.find((s) => s.stageIndex === this._activeStage);
     if (!stage) return '';
@@ -421,9 +467,8 @@ class DaCoworkerProject extends LitElement {
       </div>`;
     }
     const title = html`<h2 class="cw-panel-title">Stage ${stage.stageIndex}: ${stage.stage}</h2>`;
-    const foot = html`
-      ${this.renderStageControl(stage)}
-      ${this._stageError ? html`<p class="cw-error" style="margin:.75rem 0 0;">${this._stageError}</p>` : ''}`;
+    const err = this._stageError
+      ? html`<p class="cw-error" style="margin:.75rem 0 0;">${this._stageError}</p>` : '';
 
     if (stageKey(stage.stage) === 'keyword-identification') {
       const keywords = this._project.keywords ?? [];
@@ -448,7 +493,7 @@ class DaCoworkerProject extends LitElement {
               @cannibalization-changed=${(e) => { this._project = { ...this._project, cannibalization: e.detail.cannibalization }; }}></da-cannibalization-panel>
           </div>
         </div>
-        <div class="cw-stage1-foot">${foot}</div>`;
+        <div class="cw-stage1-foot">${this.renderStage1Control(stage)}${err}</div>`;
     }
 
     return html`
@@ -458,7 +503,7 @@ class DaCoworkerProject extends LitElement {
         <ul class="cw-steps-list">
           ${stage.steps.map((st) => html`<li>${st.displayName}</li>`)}
         </ul>
-        ${foot}
+        ${this.renderStageControl(stage)}${err}
       </div>`;
   }
 
