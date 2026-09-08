@@ -1,66 +1,81 @@
-// Coworker (AO) service seam.
-//
-// Reuses da.live's hosted nx2 chat-ao `AoChatController` to talk to the Adobe
-// Agent Orchestrator (manifest `experience-workspace`) over its WebSocket. This
-// is the STRUCTURED-call client: it owns a dedicated AO session, kept separate
-// from the visible "Ask anything" chat rail (ticket #19). It exposes `ask()` and
-// `askJson()` so later tickets (keyword suggestions #14, cannibalization #15) can
-// prompt the agent with a JSON contract we own.
-//
-// Reachability was verified live for ticket #11: the da.live `darkalley` IMS
-// token is accepted by AO server-side, so no extra provisioning is needed for an
-// entitled user. Loading the controller from hosted nx2 brings that IMS auth.
-
 /* eslint-disable no-underscore-dangle */
-// Private fields and methods use the `_` prefix, matching the Lit components in
-// this app (e.g. coworker-project.js). airbnb-base's no-underscore-dangle rule
-// fights that idiom, so it is disabled for this module.
+// Coworker (AO) service seam - a minimal, direct Agent Orchestrator WebSocket
+// client for structured, one-shot prompts (`ask` -> text, `askJson` -> parsed).
+//
+// Why not the hosted nx2 `AoChatController`? It assumes it runs inside da.live's
+// own nx2 runtime: it needs imslib to initialize `window.adobeIMS` (which never
+// happens in this app's iframe, served from a foreign origin) and it reads the
+// IMS client id from the nx runtime config (unbootstrapped here -> "Missing IMS
+// Client ID"). Rather than shim da.live internals, we talk to AO directly.
+//
+// Auth uses the IMS token DA_SDK bridges from the parent frame (kept fresh by
+// DA_SDK's refresh listener), which we read via `initIms()` from daFetch. From
+// that token we fetch the IMS profile once for the org/tenant/user fields the
+// AUTH frame needs. Protocol (verified for ticket #11): open
+// `${wsBase}/ws/sessions/new`, send AUTH then USER_INPUT, collect
+// text_delta/text_done, resolve on turn_completed.
 
-const CONTROLLER_URL = 'https://da.live/nx2/blocks/chat-ao/ao-controller.js';
-const IMS_URL = 'https://da.live/nx2/utils/ims.js';
+const DAFETCH_URL = 'https://da.live/nx/utils/daFetch.js';
+const IMS_PROFILE_URL = 'https://ims-na1.adobelogin.com/ims/profile/v1?client_id=darkalley';
+const AO_WS_BASE = 'wss://agent-orchestrator-prod-va7.adobe.io';
+const AO_MANIFEST_ID = 'experience-workspace';
 
-// Import the hosted controller once and share it across sessions.
-let controllerPromise;
-async function loadController() {
-  if (!controllerPromise) {
-    controllerPromise = import(CONTROLLER_URL).then((m) => m.default || m.AoChatController);
-  }
-  return controllerPromise;
+// x-org-name: the dma_tartan tenant id (e.g. "sitesinternal").
+const tenantNameOf = (ppc) => ppc?.find((p) => p.prodCtx?.serviceCode === 'dma_tartan')?.prodCtx?.tenant_id;
+// x-tenant-id: the owning IMS org (e.g. "...@AdobeOrg").
+const orgIdOf = (ppc) => ppc?.find((p) => p.prodCtx?.owningEntity)?.prodCtx?.owningEntity;
+
+// AO region base from the IMS profile, else the default prod base (see nx2
+// uploads.js resolveAoWsBase - replicated so we do not depend on that module).
+function wsBaseOf(ppc) {
+  const found = ppc?.find(({ prodCtx } = {}) => prodCtx?.statusCode === 'ACTIVE'
+    && (prodCtx?.serviceCode === 'acp' || prodCtx?.serviceCode === 'dma_tartan'));
+  try {
+    const { region, environment } = JSON.parse(found?.prodCtx?.fulfillable_data ?? 'null') ?? {};
+    if (region && environment) {
+      return `wss://agent-orchestrator-${environment.toLowerCase()}-${region.toLowerCase()}.adobe.io`;
+    }
+  } catch { /* fall through to the default */ }
+  return AO_WS_BASE;
 }
 
-// nx2 `loadIms()` assumes it bootstraps imslib and waits for imslib's `onReady`.
-// In the DA app runtime `window.adobeIMS` is already initialized (by DA_SDK), so
-// imslib never re-fires `onReady` and `loadIms()` hits its hard 5s timeout - which
-// is exactly the auth the AoChatController awaits in `_connectionInfo`. But nx2's
-// `setup()` does set `window.adobeid.onReady` synchronously, and that callback
-// resolves `loadIms()` from the existing signed-in `adobeIMS`. So we fire it once
-// ourselves to warm the shared, memoized `loadIms` before the controller connects.
-// Verified for ticket #13; harmless when the memo is already warm.
-let imsWarmed;
-async function warmIms() {
-  if (!imsWarmed) {
-    imsWarmed = (async () => {
-      const { loadIms } = await import(IMS_URL);
-      const pending = loadIms();
-      const ims = window.adobeIMS;
-      const signedIn = ims && ims.isSignedInUser && ims.isSignedInUser()
-        && ims.getAccessToken && ims.getAccessToken();
-      if (signedIn && window.adobeid && typeof window.adobeid.onReady === 'function') {
-        try { window.adobeid.onReady(); } catch { /* the memo will still settle or time out */ }
-      }
-      return pending;
-    })();
+// The current bridged IMS access token, or ''. daFetch is imported dynamically
+// (hosted URL) so this module stays importable outside the browser.
+async function currentToken() {
+  try {
+    const { initIms } = await import(DAFETCH_URL);
+    const details = await initIms();
+    return details?.accessToken?.token || '';
+  } catch {
+    return '';
   }
-  return imsWarmed;
 }
 
-// Newest assistant reply at or after `fromIndex`, or null.
-function lastAssistant(messages, fromIndex) {
-  for (let i = messages.length - 1; i >= fromIndex; i -= 1) {
-    const m = messages[i];
-    if (m && m.role === 'assistant' && typeof m.content === 'string') return m.content;
-  }
-  return null;
+// Best-effort auto-handling so a one-shot turn is not left hanging on a
+// permission/plan/question gate (our structured prompts rarely hit these).
+function autoHandle(evt, send) {
+  try {
+    if (evt.type === 'permission_request') {
+      const calls = evt.data?.calls ?? evt.data?.tool_calls ?? [];
+      const decisions = Object.fromEntries(calls.map((c) => {
+        const id = c.tool_call_id ?? c.toolCallId;
+        return [id, { tool_call_id: id, approved: true }];
+      }));
+      send({ type: 'PERMISSION_RESPONSE', turn_id: evt.turn_id, decisions });
+    } else if (evt.type === 'plan_approval_request') {
+      send({
+        type: 'RESUME',
+        turn_id: evt.turn_id,
+        data: {
+          type: 'plan-response', decision: 'approve', feedback: '', edited_plan_content: null,
+        },
+      });
+    } else if (evt.type === 'user_question') {
+      send({
+        type: 'QUESTION_RESPONSE', turn_id: evt.turn_id, answers: [], declined: true,
+      });
+    }
+  } catch { /* best effort - never block the turn */ }
 }
 
 /**
@@ -89,52 +104,50 @@ export function extractJson(text) {
 }
 
 /**
- * A dedicated Coworker (AO) session for structured, one-shot prompts.
+ * A dedicated Coworker (AO) client for structured, one-shot prompts.
  */
 export class Coworker {
   constructor(context) {
     const { org, repo: site } = context || {};
     this._org = org;
     this._site = site;
-    this._ctrl = null;
-    this._ready = null;
-    this._state = { messages: [] };
-    this._onState = null;
-    // AO rejects a new USER_INPUT while a turn is thinking, so serialize calls.
+    this._auth = null; // cached org/tenant/user fields (token fetched per call)
+    // AO rejects a new turn while one is in flight, so serialize calls.
     this._lock = Promise.resolve();
   }
 
-  async _ensure() {
-    if (!this._ready) {
-      this._ready = (async () => {
-        // Warm IMS first so the controller's `_connectionInfo` gets a resolved token.
-        await warmIms();
-        const AoChatController = await loadController();
-        this._ctrl = new AoChatController({
-          onUpdate: (st) => { this._state = st; if (this._onState) this._onState(st); },
-        });
-        this._ctrl.setContext({ org: this._org, site: this._site });
-      })();
+  // Build the AUTH frame + ws base. Profile fields are cached; the token is
+  // read fresh each call so a refresh mid-session is picked up.
+  async _connectionInfo() {
+    const token = await currentToken();
+    if (!token) throw new Error('no IMS token');
+    if (!this._auth) {
+      const resp = await fetch(IMS_PROFILE_URL, { headers: { Authorization: `Bearer ${token}` } });
+      if (!resp.ok) throw new Error(`IMS profile ${resp.status}`);
+      const p = await resp.json();
+      const ppc = p.projectedProductContext;
+      this._auth = {
+        orgName: tenantNameOf(ppc),
+        tenantId: orgIdOf(ppc),
+        email: p.email,
+        userId: p.userId,
+        name: p.displayName || p.name || '',
+        wsBase: wsBaseOf(ppc),
+      };
     }
-    return this._ready;
-  }
-
-  // Keep a structured turn flowing: approve tool permissions and plans, decline
-  // clarifying questions (we cannot answer them mid one-shot call).
-  _autoHandle(st) {
-    try {
-      const perm = st.pendingPermission;
-      if (perm && perm.calls && perm.calls.length) {
-        const decided = perm.decisions || {};
-        perm.calls.forEach((c) => {
-          if (!(c.toolCallId in decided)) this._ctrl.respondToPermission(c.toolCallId, true);
-        });
-      } else if (st.pendingPlanApproval) {
-        this._ctrl.respondToPlanApproval('approve');
-      } else if (st.pendingQuestion) {
-        this._ctrl.declineQuestion();
-      }
-    } catch { /* best effort - never block the turn */ }
+    const a = this._auth;
+    return {
+      wsBase: a.wsBase,
+      authFrame: {
+        type: 'AUTH',
+        authorization: `Bearer ${token}`,
+        'x-org-name': a.orgName,
+        'x-tenant-id': a.tenantId,
+        'x-user-email': a.email,
+        'x-user-id': a.userId,
+        'x-user-name': a.name,
+      },
+    };
   }
 
   /**
@@ -151,32 +164,47 @@ export class Coworker {
 
   _ask(prompt, timeoutMs) {
     return new Promise((resolve, reject) => {
-      this._ensure().then(() => {
-        const baseline = (this._state.messages || []).length;
-        let sawThinking = false;
-        let settled = false;
-        let timer = null;
-        const finish = (fn, arg) => {
-          if (settled) return;
-          settled = true;
-          this._onState = null;
-          if (timer) clearTimeout(timer);
-          fn(arg);
-        };
-        timer = setTimeout(() => finish(reject, new Error('coworker timeout')), timeoutMs);
-        this._onState = (st) => {
-          this._autoHandle(st);
-          if (st.thinking) sawThinking = true;
-          const idle = !st.thinking && !st.streamingText
-            && !st.pendingQuestion && !st.pendingPlanApproval && !st.pendingPermission;
-          const answer = lastAssistant(st.messages || [], baseline);
-          if (idle && (sawThinking || answer != null)) {
-            if (answer != null) finish(resolve, answer);
-            else finish(reject, new Error('coworker returned no answer'));
-          }
-        };
-        this._ctrl.sendMessage(prompt);
-      }).catch(reject);
+      let settled = false;
+      let ws = null;
+      let streamed = '';
+      let finalText = null;
+      let timer = null;
+      const finish = (fn, arg) => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        try { if (ws) ws.close(); } catch { /* noop */ }
+        fn(arg);
+      };
+      timer = setTimeout(() => finish(reject, new Error('coworker timeout')), timeoutMs);
+
+      this._connectionInfo().then(({ authFrame, wsBase }) => {
+        ws = new WebSocket(`${wsBase}/ws/sessions/new`);
+        const send = (o) => ws.send(JSON.stringify(o));
+        ws.addEventListener('open', () => {
+          // AO expects AUTH then USER_INPUT; SESSION_READY arrives after.
+          send(authFrame);
+          send({
+            type: 'USER_INPUT',
+            text: prompt,
+            manifestId: AO_MANIFEST_ID,
+            clientMessageId: crypto.randomUUID(),
+            client_context: { org: this._org, site: this._site },
+          });
+        });
+        ws.addEventListener('error', () => finish(reject, new Error('AO WebSocket error')));
+        ws.addEventListener('close', () => finish(reject, new Error('AO connection closed')));
+        ws.addEventListener('message', (event) => {
+          let evt;
+          try { evt = JSON.parse(event.data); } catch { return; }
+          if (evt.type === 'text_delta') streamed += evt.data?.content ?? '';
+          else if (evt.type === 'text_done') finalText = evt.data?.content ?? streamed;
+          else if (evt.type === 'turn_completed') finish(resolve, finalText ?? streamed);
+          else if (evt.type === 'error' || evt.type === 'ERROR') {
+            finish(reject, new Error(evt.data?.message || evt.message || 'AO error'));
+          } else autoHandle(evt, send);
+        });
+      }).catch((e) => finish(reject, e));
     });
   }
 
@@ -204,13 +232,11 @@ export class Coworker {
   }
 
   destroy() {
-    try { if (this._ctrl) this._ctrl.destroy(); } catch { /* noop */ }
-    this._ready = null;
-    this._ctrl = null;
+    this._auth = null;
   }
 }
 
-// One structured-call session per app, created lazily.
+// One client per app, created lazily.
 let singleton;
 export function getCoworker(context) {
   if (!singleton) singleton = new Coworker(context);
