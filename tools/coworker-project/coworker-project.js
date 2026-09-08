@@ -2,21 +2,33 @@ import DA_SDK from 'https://da.live/nx/utils/sdk.js';
 import { LitElement, html } from 'da-lit';
 import { fetchTemplates } from './templates.js';
 import { createProject, slugify } from './project.js';
+import { listProjects } from './projects.js';
 
-// Coworker Projects app. Round one: the Add Project wizard (name, description,
-// pick a template, create + persist). The projects list landing and the
-// read-only project view arrive in later tickets.
+// Coworker Projects app. Round one routes between three views:
+//   list    - the projects landing (the front door)
+//   wizard  - the Add Project wizard (name, description, template, create)
+//   project - the read-only project view (stub here; filled in ticket #9)
 //
 // NOTE: never name a method `update` - that is a reserved LitElement lifecycle
 // method and shadows render(), so the component silently fails to paint.
 
 const STEPS = ['Details', 'Template', 'Review'];
 
+function fmtDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString();
+}
+
 class DaCoworkerProject extends LitElement {
   static properties = {
     context: { attribute: false },
     token: { attribute: false },
     actions: { attribute: false },
+    _view: { state: true },
+    _projects: { state: true },
+    _loadingProjects: { state: true },
+    _selectedSlug: { state: true },
     _step: { state: true },
     _values: { state: true },
     _templates: { state: true },
@@ -31,6 +43,10 @@ class DaCoworkerProject extends LitElement {
     this.context = null;
     this.token = null;
     this.actions = null;
+    this._view = 'list';
+    this._projects = [];
+    this._loadingProjects = true;
+    this._selectedSlug = null;
     this._step = 0;
     this._values = { title: '', description: '', templateId: '', templatePath: '' };
     this._templates = [];
@@ -46,7 +62,19 @@ class DaCoworkerProject extends LitElement {
   }
 
   firstUpdated() {
+    this.loadProjects();
     this.loadTemplates();
+  }
+
+  async loadProjects() {
+    this._loadingProjects = true;
+    try {
+      this._projects = await listProjects(this.context, this.actions?.daFetch);
+    } catch {
+      this._projects = [];
+    } finally {
+      this._loadingProjects = false;
+    }
   }
 
   async loadTemplates() {
@@ -60,9 +88,22 @@ class DaCoworkerProject extends LitElement {
     }
   }
 
-  get slug() {
-    return slugify(this._values.title);
+  // --- navigation ---
+  showList() { this._view = 'list'; this.loadProjects(); }
+
+  showWizard() { this.resetWizard(); this._view = 'wizard'; }
+
+  showProject(slug) { this._selectedSlug = slug; this._view = 'project'; }
+
+  resetWizard() {
+    this._step = 0;
+    this._values = { title: '', description: '', templateId: '', templatePath: '' };
+    this._result = null;
+    this._error = null;
   }
+
+  // --- wizard ---
+  get slug() { return slugify(this._values.title); }
 
   get stepValid() {
     if (this._step === 0) return this.slug.length > 0;
@@ -71,9 +112,7 @@ class DaCoworkerProject extends LitElement {
   }
 
   // NOTE: not named `update` on purpose (see the top-of-file warning).
-  setValues(patch) {
-    this._values = { ...this._values, ...patch };
-  }
+  setValues(patch) { this._values = { ...this._values, ...patch }; }
 
   next() { if (this.stepValid && this._step < STEPS.length - 1) this._step += 1; }
 
@@ -97,13 +136,35 @@ class DaCoworkerProject extends LitElement {
     }
   }
 
-  reset() {
-    this._step = 0;
-    this._values = { title: '', description: '', templateId: '', templatePath: '' };
-    this._result = null;
-    this._error = null;
+  // --- render: list ---
+  renderList() {
+    return html`
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:1rem;">
+        <h1>Coworker Projects</h1>
+        <button @click=${() => this.showWizard()}>Add Project</button>
+      </div>
+      ${this.renderProjects()}`;
   }
 
+  renderProjects() {
+    if (this._loadingProjects) return html`<p>Loading projects...</p>`;
+    if (!this._projects.length) return html`<p>No projects yet. Add one to get started.</p>`;
+    return html`
+      <ul class="projects" style="list-style:none; padding:0;">
+        ${this._projects.map((p) => html`
+          <li style="border:1px solid #ddd; border-radius:.5rem; padding:.75rem 1rem; margin:.5rem 0;">
+            <a href="#" @click=${(e) => { e.preventDefault(); this.showProject(p.slug); }}
+              style="font-weight:600; text-decoration:none;">${p.title}</a>
+            <div style="color:#666; font-size:.9rem;">
+              ${p.templateId ? html`Template: <code>${p.templateId}</code>` : ''}
+              ${p.createdAt ? html` &middot; ${fmtDate(p.createdAt)}` : ''}
+              ${p.status ? html` &middot; ${p.status}` : ''}
+            </div>
+          </li>`)}
+      </ul>`;
+  }
+
+  // --- render: wizard ---
   renderIndicator() {
     return html`
       <ol class="steps">
@@ -156,15 +217,6 @@ class DaCoworkerProject extends LitElement {
     }
   }
 
-  renderSuccess() {
-    const { slug, editUrl } = this._result;
-    return html`
-      <p>Created <code>projects/${slug}.json</code></p>
-      ${editUrl ? html`<p><a href=${editUrl} target="_blank" rel="noopener">Open the record in DA</a></p>` : ''}
-      <p><em>The read-only project view arrives in a later ticket.</em></p>
-      <button @click=${() => this.reset()}>Create another</button>`;
-  }
-
   renderActions() {
     const last = this._step === STEPS.length - 1;
     return html`
@@ -174,17 +226,52 @@ class DaCoworkerProject extends LitElement {
     : html`<button ?disabled=${!this.stepValid} @click=${() => this.next()}>Next</button>`}`;
   }
 
+  renderSuccess() {
+    const { slug, editUrl } = this._result;
+    return html`
+      <p>Created <code>projects/${slug}.json</code></p>
+      ${editUrl ? html`<p><a href=${editUrl} target="_blank" rel="noopener">Open the record in DA</a></p>` : ''}
+      <div style="display:flex; gap:.5rem; flex-wrap:wrap;">
+        <button @click=${() => this.showProject(slug)}>View project</button>
+        <button @click=${() => this.showList()}>Back to projects</button>
+        <button @click=${() => this.resetWizard()}>Create another</button>
+      </div>`;
+  }
+
+  renderWizard() {
+    return html`
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:1rem;">
+        <h1>Add Project</h1>
+        ${this._result ? '' : html`<button @click=${() => this.showList()}>Cancel</button>`}
+      </div>
+      ${this._result ? this.renderSuccess() : html`
+        ${this.renderIndicator()}
+        ${this.renderStep()}
+        <div style="margin-top:1.5rem; display:flex; gap:.5rem; flex-wrap:wrap;">
+          ${this.renderActions()}
+        </div>`}
+      ${this._error ? html`<p style="color:#b5121b;">Error: ${this._error}</p>` : ''}`;
+  }
+
+  // --- render: project (stub; ticket #9 fills this in) ---
+  renderProject() {
+    const p = this._projects.find((x) => x.slug === this._selectedSlug);
+    return html`
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:1rem;">
+        <h1>${p?.title ?? this._selectedSlug}</h1>
+        <button @click=${() => this.showList()}>Back to projects</button>
+      </div>
+      <p><em>The read-only project view (stages and steps) arrives in the next ticket.</em></p>`;
+  }
+
   render() {
+    let body;
+    if (this._view === 'wizard') body = this.renderWizard();
+    else if (this._view === 'project') body = this.renderProject();
+    else body = this.renderList();
     return html`
       <main style="font-family: system-ui, sans-serif; padding: 2rem; max-width: 40rem;">
-        <h1>Add Project</h1>
-        ${this._result ? '' : this.renderIndicator()}
-        ${this._result ? this.renderSuccess() : this.renderStep()}
-        ${this._result ? '' : html`
-          <div style="margin-top:1.5rem; display:flex; gap:.5rem; flex-wrap:wrap;">
-            ${this.renderActions()}
-          </div>`}
-        ${this._error ? html`<p style="color:#b5121b;">Error: ${this._error}</p>` : ''}
+        ${body}
       </main>`;
   }
 }
