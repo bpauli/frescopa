@@ -188,20 +188,22 @@ export async function saveCannibalization(context, daFetch, slug, cannibalizatio
 }
 
 /**
- * Persist Stage 2's creative-direction selection (base template, visual style,
- * color palette). Read-modify-write so a concurrent keyword, cannibalization, or
- * stage-status change is not clobbered.
+ * Persist a Stage 2 creative-direction change. Read-modify-write so a concurrent
+ * keyword, cannibalization, or stage-status change is not clobbered, and the
+ * given part(s) are MERGED onto the current selection so one panel's write does
+ * not drop another's. Pass any subset, e.g. `{ baseTemplate }` or `{ colorPalette }`.
  * @param {{org: string, repo: string}} context
  * @param {(url: string, opts?: object) => Promise<Response>} daFetch
  * @param {string} slug
- * @param {{baseTemplate: object, visualStyle: object, colorPalette: object}} creativeDirection
- * @returns {Promise<object>} the saved creative-direction value
+ * @param {{baseTemplate?: object, visualStyle?: object, colorPalette?: object}} changes
+ * @returns {Promise<object>} the full merged creative-direction value
  */
-export async function saveCreativeDirection(context, daFetch, slug, creativeDirection) {
+export async function saveCreativeDirection(context, daFetch, slug, changes) {
   const { org, repo: site } = context || {};
   if (!org || !site || typeof daFetch !== 'function' || !slug) throw new Error('Missing DA context.');
   const model = parseProject(await readProject(context, daFetch, slug));
   if (!model) throw new Error('Project not found.');
+  const creativeDirection = { ...model.creativeDirection, ...changes };
   const record = serializeRecord(
     model.meta, model.stages, model.keywords, model.cannibalization, creativeDirection,
   );
