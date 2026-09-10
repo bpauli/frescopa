@@ -803,3 +803,41 @@ da-coworker-project .cw-cp-add input[type="color"] {
   border-radius: var(--s2-corner-radius-200);
   background: var(--s2-gray-25);
 }
+
+/* --- Stage 3: brief editor panel --- */
+da-coworker-project .cw-brief-field {
+  margin-bottom: var(--s2-spacing-200);
+}
+
+da-coworker-project .cw-brief-title-input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: var(--s2-spacing-100);
+  font: inherit;
+  color: var(--s2-gray-900);
+  background: var(--s2-gray-25);
+  border: 1px solid var(--s2-gray-400);
+  border-radius: var(--s2-corner-radius-200);
+}
+
+da-coworker-project .cw-brief-body {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 320px;
+  padding: var(--s2-spacing-200);
+  font: inherit;
+  line-height: 1.5;
+  color: var(--s2-gray-900);
+  background: var(--s2-gray-25);
+  border: 1px solid var(--s2-gray-400);
+  border-radius: var(--s2-corner-radius-200);
+  resize: vertical;
+}
+
+da-coworker-project .cw-brief-controls {
+  display: flex;
+  gap: var(--s2-spacing-100);
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: var(--s2-spacing-200);
+}
