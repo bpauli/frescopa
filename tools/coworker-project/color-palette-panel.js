@@ -24,6 +24,7 @@ class DaColorPalettePanel extends LitElement {
     slug: { attribute: false },
     keyword: { attribute: false },
     colorPalette: { attribute: false },
+    palettes: { attribute: false },
     _palettes: { state: true },
     _selection: { state: true },
     _customColors: { state: true },
@@ -42,6 +43,7 @@ class DaColorPalettePanel extends LitElement {
     this.slug = null;
     this.keyword = '';
     this.colorPalette = null;
+    this.palettes = null;
     this._palettes = [];
     this._selection = null;
     this._customColors = [];
@@ -66,7 +68,10 @@ class DaColorPalettePanel extends LitElement {
         this._customName = p.name === 'Custom' ? '' : (p.name || '');
       }
     }
-    this.loadSuggestions();
+    // Use the shell-provided suggestions when injected (one shared AO call);
+    // otherwise self-fetch (standalone use). Refresh always self-fetches.
+    if (this.palettes != null) this._palettes = this.palettes;
+    else this.loadSuggestions();
   }
 
   async loadSuggestions() {

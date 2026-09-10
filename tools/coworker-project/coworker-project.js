@@ -6,8 +6,12 @@ import { createProject, slugify } from './project.js';
 import { listProjects, readProject, parseProject } from './projects.js';
 import { saveStageState, recomputeGating } from './stage-state.js';
 import { primaryOf } from './keyword-logic.js';
+import { suggestCreativeDirection } from './creative-direction.js';
 import './keyword-panel.js';
 import './cannibalization-panel.js';
+import './base-template-panel.js';
+import './visual-style-panel.js';
+import './color-palette-panel.js';
 
 // Coworker Projects app. Round one routes between three views:
 //   list    - the projects landing (the front door)
@@ -61,6 +65,19 @@ function stage1Readiness(keywords, cannibalization) {
   return { ready: true, reason: '' };
 }
 
+// Stage 2 is completable once a base template, a visual style, and a color
+// palette are all set (suggested or custom). Returns what is still missing so
+// the UI can hint. (ticket #27)
+function stage2Readiness(creativeDirection) {
+  const cd = creativeDirection || {};
+  const missing = [];
+  if (!cd.baseTemplate?.name) missing.push('a base template');
+  if (!(cd.visualStyle?.name || cd.visualStyle?.description)) missing.push('a visual style');
+  if (!(cd.colorPalette?.name || cd.colorPalette?.colors?.length)) missing.push('a color palette');
+  if (missing.length) return { ready: false, reason: `Select ${missing.join(', ')}.` };
+  return { ready: true, reason: '' };
+}
+
 // Where to land when a project opens: the furthest unlocked stage.
 function defaultActiveStage(stages) {
   const open = stages.filter((s) => s.status !== 'Locked');
@@ -81,6 +98,8 @@ class DaCoworkerProject extends LitElement {
     _activeStage: { state: true },
     _savingStage: { state: true },
     _stageError: { state: true },
+    _cdSuggestions: { state: true },
+    _cdLoadingSuggestions: { state: true },
     _step: { state: true },
     _values: { state: true },
     _templates: { state: true },
@@ -104,6 +123,8 @@ class DaCoworkerProject extends LitElement {
     this._activeStage = 1;
     this._savingStage = false;
     this._stageError = null;
+    this._cdSuggestions = null;
+    this._cdLoadingSuggestions = false;
     this._step = 0;
     this._values = {
       title: '', description: '', templateId: '', templatePath: '',
@@ -170,7 +191,10 @@ class DaCoworkerProject extends LitElement {
         this._activeStage = defaultActiveStage(parsed.stages);
       }
       this._project = parsed;
-      this.autoStartStage1();
+      // A different project has its own creative-direction suggestions.
+      this._cdSuggestions = null;
+      this._cdLoadingSuggestions = false;
+      this.activateStage();
     } catch {
       this._project = null;
     } finally {
@@ -183,8 +207,15 @@ class DaCoworkerProject extends LitElement {
     const stage = this._project?.stages.find((s) => s.stageIndex === stageIndex);
     if (stage && stage.status !== 'Locked') {
       this._activeStage = stageIndex;
-      this.autoStartStage1();
+      this.activateStage();
     }
+  }
+
+  // Run the per-stage on-open hooks for whichever stage is now active.
+  activateStage() {
+    this.autoStartStage1();
+    this.autoStartStage2();
+    this.maybeLoadCreativeSuggestions();
   }
 
   // Stage 1 becomes In Progress the first time it is opened (ticket #18).
@@ -192,6 +223,37 @@ class DaCoworkerProject extends LitElement {
     const s = this._project?.stages.find((st) => stageKey(st.stage) === 'keyword-identification');
     if (s && s.stageIndex === this._activeStage && s.status === 'Not Started' && !this._savingStage) {
       this.changeStage(s.stageIndex, 'In Progress');
+    }
+  }
+
+  // Stage 2 becomes In Progress the first time it is opened (ticket #27).
+  autoStartStage2() {
+    const s = this._project?.stages.find((st) => stageKey(st.stage) === 'creative-direction');
+    if (s && s.stageIndex === this._activeStage && s.status === 'Not Started' && !this._savingStage) {
+      this.changeStage(s.stageIndex, 'In Progress');
+    }
+  }
+
+  // Fetch the visual-style + color-palette suggestions ONCE when Stage 2 opens,
+  // then hand them to both panels - so opening the stage makes one AO call, not
+  // two. The base-template recommendation is a separate seam (its panel owns it).
+  maybeLoadCreativeSuggestions() {
+    const s = this._project?.stages.find((st) => stageKey(st.stage) === 'creative-direction');
+    if (!s || s.stageIndex !== this._activeStage || s.status === 'Locked') return;
+    if (this._cdSuggestions || this._cdLoadingSuggestions) return;
+    const primary = primaryOf(this._project.keywords ?? [])?.text ?? '';
+    if (!primary) return;
+    this.loadCreativeSuggestions(primary);
+  }
+
+  async loadCreativeSuggestions(primary) {
+    this._cdLoadingSuggestions = true;
+    try {
+      this._cdSuggestions = await suggestCreativeDirection(this.context, primary);
+    } catch {
+      this._cdSuggestions = { visualStyles: [], colorPalettes: [], error: 'Could not load suggestions.' };
+    } finally {
+      this._cdLoadingSuggestions = false;
     }
   }
 
@@ -458,6 +520,30 @@ class DaCoworkerProject extends LitElement {
       </div>`;
   }
 
+  // Stage 2's completion control: Complete only when a base template, visual
+  // style, and color palette are all set; Reopen re-locks Stage 3. (ticket #27)
+  renderStage2Control(stage) {
+    const saving = this._savingStage
+      ? html`<span class="cw-saving"><span class="nx-loading-spinner"></span>Saving...</span>` : '';
+    if (stage.status === 'Complete' || stage.status === 'Approved') {
+      return html`
+        <div class="cw-controls">
+          <span class="cw-stage-done">&#10003; Stage 2 complete - Stage 3 is unlocked.</span>
+          <button class="nx-action-btn" ?disabled=${this._savingStage}
+            @click=${() => this.changeStage(stage.stageIndex, 'In Progress')}>Reopen</button>
+          ${saving}
+        </div>`;
+    }
+    const { ready, reason } = stage2Readiness(this._project.creativeDirection);
+    return html`
+      <div class="cw-controls">
+        <button class="nx-btn-accent" ?disabled=${!ready || this._savingStage}
+          @click=${() => this.changeStage(stage.stageIndex, 'Complete')}>Complete Stage 2</button>
+        ${!ready ? html`<span class="cw-muted">${reason}</span>` : ''}
+        ${saving}
+      </div>`;
+  }
+
   renderStagePanel(stages) {
     const stage = stages.find((s) => s.stageIndex === this._activeStage);
     if (!stage) return '';
@@ -494,6 +580,43 @@ class DaCoworkerProject extends LitElement {
           </div>
         </div>
         <div class="cw-stage1-foot">${this.renderStage1Control(stage)}${err}</div>`;
+    }
+
+    if (stageKey(stage.stage) === 'creative-direction') {
+      const cd = this._project.creativeDirection ?? {};
+      const primary = primaryOf(this._project.keywords ?? [])?.text ?? '';
+      const daFetch = this.actions?.daFetch;
+      const onChange = (e) => {
+        this._project = { ...this._project, creativeDirection: e.detail.creativeDirection };
+      };
+      const sug = this._cdSuggestions;
+      const suggestPanels = sug
+        ? html`
+          <div class="cw-card">
+            <da-visual-style-panel
+              .context=${this.context} .daFetch=${daFetch} .slug=${this._selectedSlug}
+              .keyword=${primary} .visualStyle=${cd.visualStyle ?? null} .styles=${sug.visualStyles}
+              @creative-direction-changed=${onChange}></da-visual-style-panel>
+          </div>
+          <div class="cw-card">
+            <da-color-palette-panel
+              .context=${this.context} .daFetch=${daFetch} .slug=${this._selectedSlug}
+              .keyword=${primary} .colorPalette=${cd.colorPalette ?? null} .palettes=${sug.colorPalettes}
+              @creative-direction-changed=${onChange}></da-color-palette-panel>
+          </div>`
+        : html`<div class="cw-card"><p class="cw-muted">Loading creative direction...</p></div>`;
+      return html`
+        ${title}
+        <div class="cw-cd">
+          <div class="cw-card">
+            <da-base-template-panel
+              .context=${this.context} .daFetch=${daFetch} .slug=${this._selectedSlug}
+              .keyword=${primary} .creativeDirection=${cd}
+              @creative-direction-changed=${onChange}></da-base-template-panel>
+          </div>
+          <div class="cw-cd-row">${suggestPanels}</div>
+        </div>
+        <div class="cw-stage1-foot">${this.renderStage2Control(stage)}${err}</div>`;
     }
 
     return html`

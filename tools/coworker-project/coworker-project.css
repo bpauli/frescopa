@@ -412,6 +412,25 @@ da-coworker-project .cw-stage1-foot {
   margin-top: var(--s2-spacing-300);
 }
 
+/* --- Stage 2: creative-direction layout (template row, then style + palette) --- */
+da-coworker-project .cw-cd {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2-spacing-300);
+}
+
+da-coworker-project .cw-cd-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--s2-spacing-300);
+}
+
+@media (width >= 900px) {
+  da-coworker-project .cw-cd-row {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
 /* --- cannibalization panel --- */
 da-coworker-project .cw-cn-header {
   display: flex;

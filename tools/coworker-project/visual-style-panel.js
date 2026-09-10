@@ -21,6 +21,7 @@ class DaVisualStylePanel extends LitElement {
     slug: { attribute: false },
     keyword: { attribute: false },
     visualStyle: { attribute: false },
+    styles: { attribute: false },
     _styles: { state: true },
     _selection: { state: true },
     _custom: { state: true },
@@ -36,6 +37,7 @@ class DaVisualStylePanel extends LitElement {
     this.slug = null;
     this.keyword = '';
     this.visualStyle = null;
+    this.styles = null;
     this._styles = [];
     this._selection = null;
     this._custom = '';
@@ -54,7 +56,10 @@ class DaVisualStylePanel extends LitElement {
       this._selection = v;
       if (v.source === 'custom') this._custom = v.name;
     }
-    this.loadSuggestions();
+    // Use the shell-provided suggestions when injected (one shared AO call);
+    // otherwise self-fetch (standalone use). Refresh always self-fetches.
+    if (this.styles != null) this._styles = this.styles;
+    else this.loadSuggestions();
   }
 
   // Auto-run on open; Refresh re-runs. Suggestions are not persisted, so each
