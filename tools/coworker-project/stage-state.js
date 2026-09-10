@@ -64,7 +64,7 @@ export function deriveOverallStatus(stages) {
  * creative-direction selection is a single flat row (palette colors comma-joined).
  */
 export function serializeRecord(
-  meta, stages, keywords = [], cannibalization = null, creativeDirection = null,
+  meta, stages, keywords = [], cannibalization = null, creativeDirection = null, brief = null,
 ) {
   const ordered = [...stages].sort((a, b) => a.stageIndex - b.stageIndex);
   const stageRows = ordered.map((s) => ({
@@ -103,16 +103,29 @@ export function serializeRecord(
     paletteColors: (cp.colors || []).join(','),
     paletteSource: cp.source || '',
   };
+  const b = brief || {};
+  const briefRow = {
+    title: b.title || '',
+    body: b.body || '',
+    destinationUrl: b.destinationUrl || '',
+  };
+  const briefLinkRows = (b.links || []).map((l) => ({
+    label: l.label || '',
+    url: l.url || '',
+    description: l.description || '',
+  }));
   return {
     ':type': 'multi-sheet',
-    ':version': 4,
-    ':names': ['meta', 'stages', 'steps', 'keywords', 'cannibalization', 'creativeDirection'],
+    ':version': 5,
+    ':names': ['meta', 'stages', 'steps', 'keywords', 'cannibalization', 'creativeDirection', 'brief', 'briefLinks'],
     meta: sheet([meta]),
     stages: sheet(stageRows),
     steps: sheet(stepRows),
     keywords: sheet(keywordRows),
     cannibalization: sheet(cannRows),
     creativeDirection: sheet([cdRow]),
+    brief: sheet([briefRow]),
+    briefLinks: sheet(briefLinkRows),
   };
 }
 
@@ -135,10 +148,11 @@ export async function saveStageState(context, daFetch, slug, project, { stageInd
   const gated = recomputeGating(next);
   const meta = { ...project.meta, status: deriveOverallStatus(gated) };
 
-  // Preserve the keyword list, cannibalization, and creative-direction data
-  // across a status write.
+  // Preserve the keyword list, cannibalization, creative-direction, and brief
+  // data across a status write.
   const record = serializeRecord(
-    meta, gated, project.keywords, project.cannibalization, project.creativeDirection,
+    meta, gated, project.keywords, project.cannibalization,
+    project.creativeDirection, project.brief,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return { meta, stages: gated };
@@ -160,7 +174,7 @@ export async function saveKeywords(context, daFetch, slug, keywords) {
   const model = parseProject(await readProject(context, daFetch, slug));
   if (!model) throw new Error('Project not found.');
   const record = serializeRecord(
-    model.meta, model.stages, keywords, model.cannibalization, model.creativeDirection,
+    model.meta, model.stages, keywords, model.cannibalization, model.creativeDirection, model.brief,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return keywords;
@@ -181,7 +195,7 @@ export async function saveCannibalization(context, daFetch, slug, cannibalizatio
   const model = parseProject(await readProject(context, daFetch, slug));
   if (!model) throw new Error('Project not found.');
   const record = serializeRecord(
-    model.meta, model.stages, model.keywords, cannibalization, model.creativeDirection,
+    model.meta, model.stages, model.keywords, cannibalization, model.creativeDirection, model.brief,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return cannibalization;
@@ -205,8 +219,32 @@ export async function saveCreativeDirection(context, daFetch, slug, changes) {
   if (!model) throw new Error('Project not found.');
   const creativeDirection = { ...model.creativeDirection, ...changes };
   const record = serializeRecord(
-    model.meta, model.stages, model.keywords, model.cannibalization, creativeDirection,
+    model.meta, model.stages, model.keywords, model.cannibalization, creativeDirection, model.brief,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return creativeDirection;
+}
+
+/**
+ * Persist a Stage 3 brief change. Read-modify-write so a concurrent write is not
+ * clobbered, and the given part(s) are MERGED onto the current brief so one
+ * panel's write does not drop another's. Pass any subset, e.g. `{ body }`,
+ * `{ destinationUrl }`, or `{ links }`.
+ * @param {{org: string, repo: string}} context
+ * @param {(url: string, opts?: object) => Promise<Response>} daFetch
+ * @param {string} slug
+ * @param {{title?: string, body?: string, destinationUrl?: string, links?: Array}} changes
+ * @returns {Promise<object>} the full merged brief value
+ */
+export async function saveBrief(context, daFetch, slug, changes) {
+  const { org, repo: site } = context || {};
+  if (!org || !site || typeof daFetch !== 'function' || !slug) throw new Error('Missing DA context.');
+  const model = parseProject(await readProject(context, daFetch, slug));
+  if (!model) throw new Error('Project not found.');
+  const brief = { ...model.brief, ...changes };
+  const record = serializeRecord(
+    model.meta, model.stages, model.keywords, model.cannibalization, model.creativeDirection, brief,
+  );
+  await writeRecord(org, site, slug, daFetch, record);
+  return brief;
 }

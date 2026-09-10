@@ -76,10 +76,12 @@ const cdSource = (v) => {
 /**
  * Parse a project record into a view model: the meta row, stages ordered by
  * stageIndex (each with its ordered steps), the Stage 1 keyword list and
- * cannibalization result, and the Stage 2 creative-direction selection.
+ * cannibalization result, the Stage 2 creative-direction selection, and the
+ * Stage 3 brief.
  * @returns {{meta: object, stages: Array<{stage, stageIndex, status, steps}>,
  *   keywords: Array<{text, role}>, cannibalization: object,
- *   creativeDirection: {baseTemplate, visualStyle, colorPalette}} | null}
+ *   creativeDirection: {baseTemplate, visualStyle, colorPalette},
+ *   brief: {title, body, destinationUrl, links: Array}} | null}
  */
 export function parseProject(record) {
   if (!record || typeof record !== 'object') return null;
@@ -137,7 +139,21 @@ export function parseProject(record) {
       source: cdSource(cdRow.paletteSource),
     },
   };
+  const briefRow = record.brief?.data?.[0] ?? {};
+  const brief = {
+    title: (briefRow.title || '').trim(),
+    // body is markdown - keep it verbatim (no trim) so edits round-trip exactly.
+    body: typeof briefRow.body === 'string' ? briefRow.body : '',
+    destinationUrl: (briefRow.destinationUrl || '').trim(),
+    links: (record.briefLinks?.data ?? [])
+      .map((l) => ({
+        label: (l.label || '').trim(),
+        url: (l.url || '').trim(),
+        description: (l.description || '').trim(),
+      }))
+      .filter((l) => l.label && l.url),
+  };
   return {
-    meta, stages, keywords, cannibalization, creativeDirection,
+    meta, stages, keywords, cannibalization, creativeDirection, brief,
   };
 }
