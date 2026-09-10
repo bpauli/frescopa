@@ -803,3 +803,44 @@ da-coworker-project .cw-cp-add input[type="color"] {
   border-radius: var(--s2-corner-radius-200);
   background: var(--s2-gray-25);
 }
+
+/* --- Stage 3: destination URL panel --- */
+da-coworker-project .cw-durl-entry {
+  display: flex;
+  gap: var(--s2-spacing-100);
+  align-items: center;
+}
+
+da-coworker-project .cw-durl-entry input {
+  flex: 1;
+  padding: var(--s2-spacing-100);
+  font: inherit;
+  color: var(--s2-gray-900);
+  background: var(--s2-gray-25);
+  border: 1px solid var(--s2-gray-400);
+  border-radius: var(--s2-corner-radius-200);
+}
+
+da-coworker-project .cw-durl-hint {
+  color: var(--s2-red-900);
+  font-size: var(--s2-component-xs-regular-font-size);
+  margin: var(--s2-spacing-75) 0 0;
+}
+
+da-coworker-project .cw-durl-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2-spacing-100);
+  margin-top: var(--s2-spacing-200);
+}
+
+da-coworker-project .cw-durl-suggestion {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2-spacing-75);
+  padding: var(--s2-spacing-50) var(--s2-spacing-100);
+  background: var(--s2-gray-100);
+  border: 1px solid var(--s2-gray-300);
+  border-radius: var(--s2-corner-radius-800);
+  font-size: var(--s2-component-s-regular-font-size);
+}
