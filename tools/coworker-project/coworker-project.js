@@ -13,6 +13,9 @@ import './base-template-panel.js';
 import './visual-style-panel.js';
 import './color-palette-panel.js';
 import './chat-rail.js';
+import './brief-panel.js';
+import './destination-url-panel.js';
+import './brief-links-panel.js';
 
 // Coworker Projects app. Round one routes between three views:
 //   list    - the projects landing (the front door)
@@ -76,6 +79,17 @@ function stage2Readiness(creativeDirection) {
   if (!(cd.visualStyle?.name || cd.visualStyle?.description)) missing.push('a visual style');
   if (!(cd.colorPalette?.name || cd.colorPalette?.colors?.length)) missing.push('a color palette');
   if (missing.length) return { ready: false, reason: `Select ${missing.join(', ')}.` };
+  return { ready: true, reason: '' };
+}
+
+// Stage 3 is finalizable once the brief has a body and a destination URL is set
+// (CTAs are optional). Returns what is still missing so the UI can hint. (#36)
+function stage3Readiness(brief) {
+  const b = brief || {};
+  const missing = [];
+  if (!(b.body && b.body.trim())) missing.push('a brief');
+  if (!(b.destinationUrl && b.destinationUrl.trim())) missing.push('a destination URL');
+  if (missing.length) return { ready: false, reason: `Add ${missing.join(' and ')}.` };
   return { ready: true, reason: '' };
 }
 
@@ -216,6 +230,7 @@ class DaCoworkerProject extends LitElement {
   activateStage() {
     this.autoStartStage1();
     this.autoStartStage2();
+    this.autoStartStage3();
     this.maybeLoadCreativeSuggestions();
   }
 
@@ -230,6 +245,14 @@ class DaCoworkerProject extends LitElement {
   // Stage 2 becomes In Progress the first time it is opened (ticket #27).
   autoStartStage2() {
     const s = this._project?.stages.find((st) => stageKey(st.stage) === 'creative-direction');
+    if (s && s.stageIndex === this._activeStage && s.status === 'Not Started' && !this._savingStage) {
+      this.changeStage(s.stageIndex, 'In Progress');
+    }
+  }
+
+  // Stage 3 becomes In Progress the first time it is opened (ticket #36).
+  autoStartStage3() {
+    const s = this._project?.stages.find((st) => stageKey(st.stage) === 'brief-generation');
     if (s && s.stageIndex === this._activeStage && s.status === 'Not Started' && !this._savingStage) {
       this.changeStage(s.stageIndex, 'In Progress');
     }
@@ -545,6 +568,30 @@ class DaCoworkerProject extends LitElement {
       </div>`;
   }
 
+  // Stage 3's completion control: Finalize only when the brief has a body and a
+  // destination URL is set; Reopen re-locks Stage 4. (ticket #36)
+  renderStage3Control(stage) {
+    const saving = this._savingStage
+      ? html`<span class="cw-saving"><span class="nx-loading-spinner"></span>Saving...</span>` : '';
+    if (stage.status === 'Complete' || stage.status === 'Approved') {
+      return html`
+        <div class="cw-controls">
+          <span class="cw-stage-done">&#10003; Brief finalized - Stage 4 is unlocked.</span>
+          <button class="nx-action-btn" ?disabled=${this._savingStage}
+            @click=${() => this.changeStage(stage.stageIndex, 'In Progress')}>Reopen</button>
+          ${saving}
+        </div>`;
+    }
+    const { ready, reason } = stage3Readiness(this._project.brief);
+    return html`
+      <div class="cw-controls">
+        <button class="nx-btn-accent" ?disabled=${!ready || this._savingStage}
+          @click=${() => this.changeStage(stage.stageIndex, 'Complete')}>Finalize brief</button>
+        ${!ready ? html`<span class="cw-muted">${reason}</span>` : ''}
+        ${saving}
+      </div>`;
+  }
+
   renderStagePanel(stages) {
     const stage = stages.find((s) => s.stageIndex === this._activeStage);
     if (!stage) return '';
@@ -620,6 +667,41 @@ class DaCoworkerProject extends LitElement {
         <div class="cw-stage1-foot">${this.renderStage2Control(stage)}${err}</div>`;
     }
 
+    if (stageKey(stage.stage) === 'brief-generation') {
+      const brief = this._project.brief ?? {};
+      const cd = this._project.creativeDirection ?? {};
+      const primary = primaryOf(this._project.keywords ?? [])?.text ?? '';
+      const daFetch = this.actions?.daFetch;
+      const onChange = (e) => {
+        this._project = { ...this._project, brief: e.detail.brief };
+      };
+      return html`
+        ${title}
+        <div class="cw-cd">
+          <div class="cw-card">
+            <da-brief-panel
+              .context=${this.context} .daFetch=${daFetch} .slug=${this._selectedSlug}
+              .keyword=${primary} .brief=${brief} .creativeDirection=${cd}
+              @brief-changed=${onChange}></da-brief-panel>
+          </div>
+          <div class="cw-cd-row">
+            <div class="cw-card">
+              <da-destination-url-panel
+                .context=${this.context} .daFetch=${daFetch} .slug=${this._selectedSlug}
+                .keyword=${primary} .brief=${brief}
+                @brief-changed=${onChange}></da-destination-url-panel>
+            </div>
+            <div class="cw-card">
+              <da-brief-links-panel
+                .context=${this.context} .daFetch=${daFetch} .slug=${this._selectedSlug}
+                .keyword=${primary} .brief=${brief}
+                @brief-changed=${onChange}></da-brief-links-panel>
+            </div>
+          </div>
+        </div>
+        <div class="cw-stage1-foot">${this.renderStage3Control(stage)}${err}</div>`;
+    }
+
     return html`
       ${title}
       <p class="cw-panel-note">Placeholder panel - the ${stage.stage} tools arrive in a later ticket.</p>
@@ -646,11 +728,18 @@ class DaCoworkerProject extends LitElement {
       ${this.renderStagePanel(stages)}`;
   }
 
+  // The brief panel's "Add to chat" bubbles here; hand the text to the rail
+  // (light DOM, so we can reach it by query) to prefill the next message. (#36)
+  onAddToChat(e) {
+    const text = e.detail?.text;
+    if (text) this.querySelector('da-chat-rail')?.prefill(text);
+  }
+
   renderProject() {
     const title = this._project?.meta?.title ?? this._selectedSlug;
     const stage = this._project?.stages.find((s) => s.stageIndex === this._activeStage) ?? null;
     return html`
-      <div class="cw-shell">
+      <div class="cw-shell" @add-to-chat=${(e) => this.onAddToChat(e)}>
         <aside class="cw-rail">
           <da-chat-rail .context=${this.context} .stage=${stage} .project=${this._project}></da-chat-rail>
         </aside>
