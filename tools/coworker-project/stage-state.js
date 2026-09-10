@@ -57,12 +57,15 @@ export function deriveOverallStatus(stages) {
 }
 
 /**
- * Rebuild the multi-sheet record from the parsed view model. The `keywords` and
- * `cannibalization` sheets hold Stage 1's data; both are always written (empty
- * when there is none) so a save never drops them. The cannibalization check
- * timestamp is denormalized onto each competitor row.
+ * Rebuild the multi-sheet record from the parsed view model. The `keywords`,
+ * `cannibalization`, and `creativeDirection` sheets hold the stage data; all are
+ * always written (empty when there is none) so a save never drops them. The
+ * cannibalization check timestamp is denormalized onto each competitor row; the
+ * creative-direction selection is a single flat row (palette colors comma-joined).
  */
-export function serializeRecord(meta, stages, keywords = [], cannibalization = null) {
+export function serializeRecord(
+  meta, stages, keywords = [], cannibalization = null, creativeDirection = null,
+) {
   const ordered = [...stages].sort((a, b) => a.stageIndex - b.stageIndex);
   const stageRows = ordered.map((s) => ({
     stage: s.stage, stageIndex: s.stageIndex, status: s.status,
@@ -84,15 +87,32 @@ export function serializeRecord(meta, stages, keywords = [], cannibalization = n
     reason: c.reason,
     checkedAt: cann.checkedAt || '',
   }));
+  const cd = creativeDirection || {};
+  const bt = cd.baseTemplate || {};
+  const vs = cd.visualStyle || {};
+  const cp = cd.colorPalette || {};
+  const cdRow = {
+    templateName: bt.name || '',
+    templateUrl: bt.url || '',
+    templateRecommended: !!bt.recommended,
+    styleName: vs.name || '',
+    styleDescription: vs.description || '',
+    styleSource: vs.source || '',
+    paletteName: cp.name || '',
+    paletteDescription: cp.description || '',
+    paletteColors: (cp.colors || []).join(','),
+    paletteSource: cp.source || '',
+  };
   return {
     ':type': 'multi-sheet',
-    ':version': 3,
-    ':names': ['meta', 'stages', 'steps', 'keywords', 'cannibalization'],
+    ':version': 4,
+    ':names': ['meta', 'stages', 'steps', 'keywords', 'cannibalization', 'creativeDirection'],
     meta: sheet([meta]),
     stages: sheet(stageRows),
     steps: sheet(stepRows),
     keywords: sheet(keywordRows),
     cannibalization: sheet(cannRows),
+    creativeDirection: sheet([cdRow]),
   };
 }
 
@@ -115,8 +135,11 @@ export async function saveStageState(context, daFetch, slug, project, { stageInd
   const gated = recomputeGating(next);
   const meta = { ...project.meta, status: deriveOverallStatus(gated) };
 
-  // Preserve the keyword list + cannibalization data across a status write.
-  const record = serializeRecord(meta, gated, project.keywords, project.cannibalization);
+  // Preserve the keyword list, cannibalization, and creative-direction data
+  // across a status write.
+  const record = serializeRecord(
+    meta, gated, project.keywords, project.cannibalization, project.creativeDirection,
+  );
   await writeRecord(org, site, slug, daFetch, record);
   return { meta, stages: gated };
 }
@@ -136,7 +159,9 @@ export async function saveKeywords(context, daFetch, slug, keywords) {
   if (!org || !site || typeof daFetch !== 'function' || !slug) throw new Error('Missing DA context.');
   const model = parseProject(await readProject(context, daFetch, slug));
   if (!model) throw new Error('Project not found.');
-  const record = serializeRecord(model.meta, model.stages, keywords, model.cannibalization);
+  const record = serializeRecord(
+    model.meta, model.stages, keywords, model.cannibalization, model.creativeDirection,
+  );
   await writeRecord(org, site, slug, daFetch, record);
   return keywords;
 }
@@ -155,7 +180,31 @@ export async function saveCannibalization(context, daFetch, slug, cannibalizatio
   if (!org || !site || typeof daFetch !== 'function' || !slug) throw new Error('Missing DA context.');
   const model = parseProject(await readProject(context, daFetch, slug));
   if (!model) throw new Error('Project not found.');
-  const record = serializeRecord(model.meta, model.stages, model.keywords, cannibalization);
+  const record = serializeRecord(
+    model.meta, model.stages, model.keywords, cannibalization, model.creativeDirection,
+  );
   await writeRecord(org, site, slug, daFetch, record);
   return cannibalization;
+}
+
+/**
+ * Persist Stage 2's creative-direction selection (base template, visual style,
+ * color palette). Read-modify-write so a concurrent keyword, cannibalization, or
+ * stage-status change is not clobbered.
+ * @param {{org: string, repo: string}} context
+ * @param {(url: string, opts?: object) => Promise<Response>} daFetch
+ * @param {string} slug
+ * @param {{baseTemplate: object, visualStyle: object, colorPalette: object}} creativeDirection
+ * @returns {Promise<object>} the saved creative-direction value
+ */
+export async function saveCreativeDirection(context, daFetch, slug, creativeDirection) {
+  const { org, repo: site } = context || {};
+  if (!org || !site || typeof daFetch !== 'function' || !slug) throw new Error('Missing DA context.');
+  const model = parseProject(await readProject(context, daFetch, slug));
+  if (!model) throw new Error('Project not found.');
+  const record = serializeRecord(
+    model.meta, model.stages, model.keywords, model.cannibalization, creativeDirection,
+  );
+  await writeRecord(org, site, slug, daFetch, record);
+  return creativeDirection;
 }

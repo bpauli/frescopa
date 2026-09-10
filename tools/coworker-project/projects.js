@@ -66,11 +66,20 @@ export async function readProject(context, daFetch, slug) {
   }
 }
 
+// One of the two known creative-direction sources, or '' when unset.
+const cdSource = (v) => {
+  if (v === 'custom') return 'custom';
+  if (v === 'suggested') return 'suggested';
+  return '';
+};
+
 /**
  * Parse a project record into a view model: the meta row, stages ordered by
- * stageIndex (each with its ordered steps), and the Stage 1 keyword list.
+ * stageIndex (each with its ordered steps), the Stage 1 keyword list and
+ * cannibalization result, and the Stage 2 creative-direction selection.
  * @returns {{meta: object, stages: Array<{stage, stageIndex, status, steps}>,
- *   keywords: Array<{text, role}>} | null}
+ *   keywords: Array<{text, role}>, cannibalization: object,
+ *   creativeDirection: {baseTemplate, visualStyle, colorPalette}} | null}
  */
 export function parseProject(record) {
   if (!record || typeof record !== 'object') return null;
@@ -109,7 +118,26 @@ export function parseProject(record) {
       }))
       .filter((c) => c.url),
   };
+  const cdRow = record.creativeDirection?.data?.[0] ?? {};
+  const creativeDirection = {
+    baseTemplate: {
+      name: (cdRow.templateName || '').trim(),
+      url: (cdRow.templateUrl || '').trim(),
+      recommended: !!cdRow.templateRecommended,
+    },
+    visualStyle: {
+      name: (cdRow.styleName || '').trim(),
+      description: (cdRow.styleDescription || '').trim(),
+      source: cdSource(cdRow.styleSource),
+    },
+    colorPalette: {
+      name: (cdRow.paletteName || '').trim(),
+      description: (cdRow.paletteDescription || '').trim(),
+      colors: (cdRow.paletteColors || '').split(',').map((c) => c.trim()).filter(Boolean),
+      source: cdSource(cdRow.paletteSource),
+    },
+  };
   return {
-    meta, stages, keywords, cannibalization,
+    meta, stages, keywords, cannibalization, creativeDirection,
   };
 }
