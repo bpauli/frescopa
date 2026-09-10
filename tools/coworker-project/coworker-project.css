@@ -21,7 +21,90 @@ da-coworker-project .cw-app {
 }
 
 da-coworker-project .cw-app.cw-wide {
-  max-width: 72rem;
+  max-width: 84rem;
+}
+
+/* --- shell: persistent chat rail + stage runner --- */
+da-coworker-project .cw-shell {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--s2-spacing-400);
+  align-items: start;
+}
+
+@media (width >= 900px) {
+  da-coworker-project .cw-shell {
+    grid-template-columns: 340px 1fr;
+  }
+}
+
+da-coworker-project da-chat-rail {
+  display: flex;
+  flex-direction: column;
+  background: var(--s2-gray-75);
+  border: 1px solid var(--s2-gray-200);
+  border-radius: var(--s2-corner-radius-500);
+  padding: var(--s2-spacing-300);
+}
+
+da-coworker-project .cw-chat-head {
+  margin-bottom: var(--s2-spacing-200);
+}
+
+da-coworker-project .cw-chat-empty {
+  color: var(--s2-gray-600);
+  font-size: var(--s2-component-s-regular-font-size);
+}
+
+da-coworker-project .cw-chat-msgs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2-spacing-200);
+  max-height: 55vh;
+  overflow-y: auto;
+  margin-bottom: var(--s2-spacing-200);
+}
+
+da-coworker-project .cw-chat-msg {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2-spacing-50);
+}
+
+da-coworker-project .cw-chat-role {
+  font-size: var(--s2-component-xs-regular-font-size);
+  font-weight: var(--s2-component-s-bold-font-weight);
+  color: var(--s2-gray-700);
+}
+
+da-coworker-project .cw-chat-text {
+  padding: var(--s2-spacing-100) var(--s2-spacing-200);
+  border-radius: var(--s2-corner-radius-200);
+  background: var(--s2-gray-100);
+  white-space: pre-wrap;
+  font-size: var(--s2-component-s-regular-font-size);
+}
+
+da-coworker-project .cw-chat-msg.is-user .cw-chat-text {
+  background: var(--s2-blue-200);
+}
+
+da-coworker-project .cw-chat-entry {
+  display: flex;
+  gap: var(--s2-spacing-100);
+  align-items: flex-end;
+  margin-top: auto;
+}
+
+da-coworker-project .cw-chat-input {
+  flex: 1;
+  padding: var(--s2-spacing-100);
+  font: inherit;
+  color: var(--s2-gray-900);
+  background: var(--s2-gray-25);
+  border: 1px solid var(--s2-gray-400);
+  border-radius: var(--s2-corner-radius-200);
+  resize: vertical;
 }
 
 da-coworker-project .cw-header {

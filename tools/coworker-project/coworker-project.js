@@ -12,6 +12,7 @@ import './cannibalization-panel.js';
 import './base-template-panel.js';
 import './visual-style-panel.js';
 import './color-palette-panel.js';
+import './chat-rail.js';
 
 // Coworker Projects app. Round one routes between three views:
 //   list    - the projects landing (the front door)
@@ -647,13 +648,19 @@ class DaCoworkerProject extends LitElement {
 
   renderProject() {
     const title = this._project?.meta?.title ?? this._selectedSlug;
+    const stage = this._project?.stages.find((s) => s.stageIndex === this._activeStage) ?? null;
     return html`
-      <div class="cw-runner">
-        <div class="cw-header">
-          <h1>${title}</h1>
-          <button class="nx-action-btn" @click=${() => this.showList()}>Back to projects</button>
+      <div class="cw-shell">
+        <aside class="cw-rail">
+          <da-chat-rail .context=${this.context} .stage=${stage} .project=${this._project}></da-chat-rail>
+        </aside>
+        <div class="cw-runner">
+          <div class="cw-header">
+            <h1>${title}</h1>
+            <button class="nx-action-btn" @click=${() => this.showList()}>Back to projects</button>
+          </div>
+          ${this.renderProjectBody()}
         </div>
-        ${this.renderProjectBody()}
       </div>`;
   }
 
