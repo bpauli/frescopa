@@ -882,3 +882,70 @@ da-coworker-project .cw-durl-suggestion {
   border-radius: var(--s2-corner-radius-800);
   font-size: var(--s2-component-s-regular-font-size);
 }
+
+/* --- Stage 3: links & call-to-actions panel --- */
+da-coworker-project .cw-links-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--s2-spacing-200);
+  margin-bottom: var(--s2-spacing-300);
+}
+
+da-coworker-project .cw-links-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s2-spacing-75);
+  padding: var(--s2-spacing-200);
+  background: var(--s2-gray-25);
+  border: 1px solid var(--s2-gray-400);
+  border-radius: var(--s2-corner-radius-200);
+}
+
+da-coworker-project .cw-links-url {
+  font-size: var(--s2-component-s-regular-font-size);
+  color: var(--s2-blue-900);
+  word-break: break-all;
+}
+
+da-coworker-project .cw-links-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2-spacing-100);
+  margin-bottom: var(--s2-spacing-200);
+}
+
+da-coworker-project .cw-links-row {
+  display: flex;
+  gap: var(--s2-spacing-100);
+  align-items: center;
+}
+
+da-coworker-project .cw-links-row input {
+  padding: var(--s2-spacing-100);
+  font: inherit;
+  color: var(--s2-gray-900);
+  background: var(--s2-gray-25);
+  border: 1px solid var(--s2-gray-400);
+  border-radius: var(--s2-corner-radius-200);
+}
+
+da-coworker-project .cw-links-label {
+  flex: 0 0 140px;
+}
+
+da-coworker-project .cw-links-target,
+da-coworker-project .cw-links-desc {
+  flex: 1;
+}
+
+da-coworker-project .cw-links-row.is-invalid .cw-links-target {
+  border-color: var(--s2-red-900);
+}
+
+da-coworker-project .cw-links-actions {
+  display: flex;
+  gap: var(--s2-spacing-100);
+  align-items: center;
+  margin-top: var(--s2-spacing-100);
+}
