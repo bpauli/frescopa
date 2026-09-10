@@ -103,6 +103,42 @@ export function extractJson(text) {
   throw new Error('no JSON found in response');
 }
 
+// Build the AUTH frame + ws base, shared by the one-shot client and the chat
+// session. Profile fields (org/tenant/user, ws region) are per-user, cached
+// module-wide; the token is read fresh each call so a refresh is picked up.
+let authCache = null;
+async function getConnectionInfo() {
+  const token = await currentToken();
+  if (!token) throw new Error('no IMS token');
+  if (!authCache) {
+    const resp = await fetch(IMS_PROFILE_URL, { headers: { Authorization: `Bearer ${token}` } });
+    if (!resp.ok) throw new Error(`IMS profile ${resp.status}`);
+    const p = await resp.json();
+    const ppc = p.projectedProductContext;
+    authCache = {
+      orgName: tenantNameOf(ppc),
+      tenantId: orgIdOf(ppc),
+      email: p.email,
+      userId: p.userId,
+      name: p.displayName || p.name || '',
+      wsBase: wsBaseOf(ppc),
+    };
+  }
+  const a = authCache;
+  return {
+    wsBase: a.wsBase,
+    authFrame: {
+      type: 'AUTH',
+      authorization: `Bearer ${token}`,
+      'x-org-name': a.orgName,
+      'x-tenant-id': a.tenantId,
+      'x-user-email': a.email,
+      'x-user-id': a.userId,
+      'x-user-name': a.name,
+    },
+  };
+}
+
 /**
  * A dedicated Coworker (AO) client for structured, one-shot prompts.
  */
@@ -111,43 +147,13 @@ export class Coworker {
     const { org, repo: site } = context || {};
     this._org = org;
     this._site = site;
-    this._auth = null; // cached org/tenant/user fields (token fetched per call)
     // AO rejects a new turn while one is in flight, so serialize calls.
     this._lock = Promise.resolve();
   }
 
-  // Build the AUTH frame + ws base. Profile fields are cached; the token is
-  // read fresh each call so a refresh mid-session is picked up.
+  // eslint-disable-next-line class-methods-use-this
   async _connectionInfo() {
-    const token = await currentToken();
-    if (!token) throw new Error('no IMS token');
-    if (!this._auth) {
-      const resp = await fetch(IMS_PROFILE_URL, { headers: { Authorization: `Bearer ${token}` } });
-      if (!resp.ok) throw new Error(`IMS profile ${resp.status}`);
-      const p = await resp.json();
-      const ppc = p.projectedProductContext;
-      this._auth = {
-        orgName: tenantNameOf(ppc),
-        tenantId: orgIdOf(ppc),
-        email: p.email,
-        userId: p.userId,
-        name: p.displayName || p.name || '',
-        wsBase: wsBaseOf(ppc),
-      };
-    }
-    const a = this._auth;
-    return {
-      wsBase: a.wsBase,
-      authFrame: {
-        type: 'AUTH',
-        authorization: `Bearer ${token}`,
-        'x-org-name': a.orgName,
-        'x-tenant-id': a.tenantId,
-        'x-user-email': a.email,
-        'x-user-id': a.userId,
-        'x-user-name': a.name,
-      },
-    };
+    return getConnectionInfo();
   }
 
   /**
@@ -231,8 +237,9 @@ export class Coworker {
     throw new Error(`coworker JSON parse failed: ${lastErr && lastErr.message}`);
   }
 
+  // eslint-disable-next-line class-methods-use-this
   destroy() {
-    this._auth = null;
+    authCache = null;
   }
 }
 
@@ -241,4 +248,131 @@ let singleton;
 export function getCoworker(context) {
   if (!singleton) singleton = new Coworker(context);
   return singleton;
+}
+
+/**
+ * A persistent, multi-turn Coworker (AO) chat session for the "Ask anything"
+ * rail (ticket #29). Unlike the one-shot `Coworker`, it keeps ONE WebSocket
+ * session open so AO retains conversation memory across turns. A stage-context
+ * preamble can be set/replaced (used by the rail, #30) and is prepended to the
+ * next message only when it has changed, so context stays fresh without being
+ * resent every turn. Responses are one-shot (resolved on turn_completed);
+ * token streaming is out of scope here.
+ */
+export class ChatSession {
+  constructor(context) {
+    const { org, repo: site } = context || {};
+    this._org = org;
+    this._site = site;
+    this._ws = null;
+    this._ready = null; // promise: WS open + AUTH sent
+    this._pending = null; // the in-flight turn's collector
+    this._context = ''; // stage-context preamble
+    this._lastSentContext = null;
+    this._lock = Promise.resolve(); // serialize turns (AO rejects concurrent turns)
+  }
+
+  /** Set/replace the stage-context preamble; sent with the next changed turn. */
+  setContext(preamble) {
+    this._context = preamble || '';
+  }
+
+  _fail(err) {
+    if (this._pending) this._pending.reject(err);
+    this._ready = null;
+    this._ws = null;
+  }
+
+  _ensure() {
+    if (this._ready) return this._ready;
+    this._ready = new Promise((resolve, reject) => {
+      getConnectionInfo().then(({ authFrame, wsBase }) => {
+        const ws = new WebSocket(`${wsBase}/ws/sessions/new`);
+        this._ws = ws;
+        ws.addEventListener('open', () => {
+          ws.send(JSON.stringify(authFrame));
+          resolve();
+        });
+        ws.addEventListener('error', () => this._fail(new Error('AO WebSocket error')));
+        ws.addEventListener('close', () => this._fail(new Error('AO connection closed')));
+        ws.addEventListener('message', (e) => this._onMessage(e));
+      }).catch(reject);
+    });
+    return this._ready;
+  }
+
+  _onMessage(event) {
+    let evt;
+    try { evt = JSON.parse(event.data); } catch { return; }
+    const p = this._pending;
+    const send = (o) => { try { this._ws?.send(JSON.stringify(o)); } catch { /* noop */ } };
+    if (!p) { autoHandle(evt, send); return; } // SESSION_READY / between-turn noise
+    if (evt.type === 'text_delta') p.streamed += evt.data?.content ?? '';
+    else if (evt.type === 'text_done') p.finalText = evt.data?.content ?? p.streamed;
+    else if (evt.type === 'turn_completed') p.resolve(p.finalText ?? p.streamed);
+    else if (evt.type === 'error' || evt.type === 'ERROR') {
+      p.reject(new Error(evt.data?.message || evt.message || 'AO error'));
+    } else autoHandle(evt, send);
+  }
+
+  /**
+   * Send one chat message and resolve with the assistant's reply. Turns are
+   * serialized. The stage-context preamble is prepended only when it changed.
+   * @param {string} text - the user's message (display text; preamble is added internally)
+   * @param {{ timeoutMs?: number }} [opts]
+   * @returns {Promise<string>}
+   */
+  async send(text, { timeoutMs = 60000 } = {}) {
+    const run = this._lock.then(() => this._send(text, timeoutMs));
+    this._lock = run.catch(() => {});
+    return run;
+  }
+
+  _send(text, timeoutMs) {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      let timer = null;
+      const done = (fn, arg) => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        this._pending = null;
+        fn(arg);
+      };
+      timer = setTimeout(() => done(reject, new Error('coworker timeout')), timeoutMs);
+      this._pending = {
+        streamed: '',
+        finalText: null,
+        resolve: (v) => done(resolve, v),
+        reject: (e) => done(reject, e),
+      };
+      this._ensure().then(() => {
+        let payload = text;
+        if (this._context && this._context !== this._lastSentContext) {
+          payload = `${this._context}\n\n${text}`;
+          this._lastSentContext = this._context;
+        }
+        this._ws.send(JSON.stringify({
+          type: 'USER_INPUT',
+          text: payload,
+          manifestId: AO_MANIFEST_ID,
+          clientMessageId: crypto.randomUUID(),
+          client_context: { org: this._org, site: this._site },
+        }));
+      }).catch((e) => done(reject, e));
+    });
+  }
+
+  close() {
+    try { this._ws?.close(); } catch { /* noop */ }
+    this._ws = null;
+    this._ready = null;
+    this._pending = null;
+    this._lastSentContext = null;
+  }
+}
+
+/** Open a fresh multi-turn chat session. The caller owns its lifecycle. */
+export function openChat(context) {
+  return new ChatSession(context);
 }
