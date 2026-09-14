@@ -1,0 +1,87 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import { parseProject } from './projects.js';
+import {
+  serializeRecord, savePage, savePreflight, saveBrief,
+} from './stage-state.js';
+
+// A fake daFetch backed by a single in-memory record: a GET (no options) reads
+// it; a POST captures the written blob. Lets the merging save functions run
+// their real read-modify-write against real serialize/parse, no logic mocked.
+function fakeDa(record) {
+  const writes = [];
+  const daFetch = async (url, opts) => {
+    if (!opts) return { ok: true, json: async () => record };
+    const text = await opts.body.get('data').text();
+    writes.push(JSON.parse(text));
+    return { ok: true, status: 200, statusText: 'OK' };
+  };
+  return { daFetch, writes };
+}
+
+const ctx = { org: 'o', repo: 's' };
+const page = {
+  generatedAt: '2026-01-01T00:00:00Z',
+  path: '/products/foo',
+  previewUrl: 'https://main--r--o.aem.page/products/foo',
+  editUrl: 'https://da.live/edit',
+  status: 'generated',
+};
+const preflight = {
+  ranAt: '2026-01-02T00:00:00Z',
+  categories: [{
+    name: 'Web performance', passed: 8, total: 10, score: 80, source: 'psi',
+  }],
+};
+
+test('serializeRecord round-trips page and preflight through parseProject', () => {
+  const stages = [{
+    stage: 'a', stageIndex: 1, status: 'Complete', steps: [],
+  }];
+  const model = parseProject(
+    serializeRecord({ slug: 'x' }, stages, [], null, null, null, page, preflight),
+  );
+  assert.deepEqual(model.page, page);
+  assert.deepEqual(model.preflight, preflight);
+});
+
+test('savePage merges the change and preserves the other stage sheets', async () => {
+  const brief = {
+    title: 'T', body: 'B', destinationUrl: '/d', links: [{ label: 'L', url: '/u', description: '' }],
+  };
+  const record = serializeRecord({ slug: 'x' }, [], [{ text: 'k', role: 'primary' }], null, null, brief);
+  const { daFetch, writes } = fakeDa(record);
+
+  const saved = await savePage(ctx, daFetch, 'x', { path: '/new', status: 'generated' });
+  assert.equal(saved.path, '/new');
+
+  const written = parseProject(writes[0]);
+  assert.equal(written.page.path, '/new');
+  assert.equal(written.page.status, 'generated');
+  assert.equal(written.brief.title, 'T');
+  assert.deepEqual(written.keywords, [{ text: 'k', role: 'primary' }]);
+});
+
+test('saveBrief preserves the page and preflight sheets across its write', async () => {
+  const record = serializeRecord({ slug: 'x' }, [], [], null, null, null, page, preflight);
+  const { daFetch, writes } = fakeDa(record);
+
+  await saveBrief(ctx, daFetch, 'x', { title: 'New' });
+
+  const written = parseProject(writes[0]);
+  assert.equal(written.brief.title, 'New');
+  assert.deepEqual(written.page, page);
+  assert.deepEqual(written.preflight, preflight);
+});
+
+test('savePreflight preserves the page sheet across its write', async () => {
+  const record = serializeRecord({ slug: 'x' }, [], [], null, null, null, page, null);
+  const { daFetch, writes } = fakeDa(record);
+
+  await savePreflight(ctx, daFetch, 'x', preflight);
+
+  const written = parseProject(writes[0]);
+  assert.deepEqual(written.preflight, preflight);
+  assert.deepEqual(written.page, page);
+});

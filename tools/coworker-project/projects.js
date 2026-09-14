@@ -76,12 +76,14 @@ const cdSource = (v) => {
 /**
  * Parse a project record into a view model: the meta row, stages ordered by
  * stageIndex (each with its ordered steps), the Stage 1 keyword list and
- * cannibalization result, the Stage 2 creative-direction selection, and the
- * Stage 3 brief.
+ * cannibalization result, the Stage 2 creative-direction selection, the
+ * Stage 3 brief, and the Stage 4 generated page and pre-flight result.
  * @returns {{meta: object, stages: Array<{stage, stageIndex, status, steps}>,
  *   keywords: Array<{text, role}>, cannibalization: object,
  *   creativeDirection: {baseTemplate, visualStyle, colorPalette},
- *   brief: {title, body, destinationUrl, links: Array}} | null}
+ *   brief: {title, body, destinationUrl, links: Array},
+ *   page: {generatedAt, path, previewUrl, editUrl, status},
+ *   preflight: {ranAt, categories: Array<{name, passed, total, score, source}>}} | null}
  */
 export function parseProject(record) {
   if (!record || typeof record !== 'object') return null;
@@ -153,7 +155,29 @@ export function parseProject(record) {
       }))
       .filter((l) => l.label && l.url),
   };
+  const pageRow = record.page?.data?.[0] ?? {};
+  const page = {
+    // timestamps are machine-generated - keep them verbatim.
+    generatedAt: pageRow.generatedAt || '',
+    path: (pageRow.path || '').trim(),
+    previewUrl: (pageRow.previewUrl || '').trim(),
+    editUrl: (pageRow.editUrl || '').trim(),
+    status: (pageRow.status || '').trim(),
+  };
+  const pfRows = record.preflight?.data ?? [];
+  const preflight = {
+    ranAt: pfRows[0]?.ranAt || '',
+    categories: pfRows
+      .map((r) => ({
+        name: (r.name || '').trim(),
+        passed: Number(r.passed) || 0,
+        total: Number(r.total) || 0,
+        score: Number(r.score) || 0,
+        source: r.source === 'ai' ? 'ai' : 'psi',
+      }))
+      .filter((c) => c.name),
+  };
   return {
-    meta, stages, keywords, cannibalization, creativeDirection, brief,
+    meta, stages, keywords, cannibalization, creativeDirection, brief, page, preflight,
   };
 }

@@ -58,13 +58,22 @@ export function deriveOverallStatus(stages) {
 
 /**
  * Rebuild the multi-sheet record from the parsed view model. The `keywords`,
- * `cannibalization`, and `creativeDirection` sheets hold the stage data; all are
- * always written (empty when there is none) so a save never drops them. The
- * cannibalization check timestamp is denormalized onto each competitor row; the
- * creative-direction selection is a single flat row (palette colors comma-joined).
+ * `cannibalization`, `creativeDirection`, `brief`, `page`, and `preflight`
+ * sheets hold the stage data; all are always written (empty when there is none)
+ * so a save never drops them. The cannibalization check timestamp is denormalized
+ * onto each competitor row and the pre-flight run timestamp onto each category
+ * row; the creative-direction selection and the generated page are each a single
+ * flat row (palette colors comma-joined).
  */
 export function serializeRecord(
-  meta, stages, keywords = [], cannibalization = null, creativeDirection = null, brief = null,
+  meta,
+  stages,
+  keywords = [],
+  cannibalization = null,
+  creativeDirection = null,
+  brief = null,
+  page = null,
+  preflight = null,
 ) {
   const ordered = [...stages].sort((a, b) => a.stageIndex - b.stageIndex);
   const stageRows = ordered.map((s) => ({
@@ -114,10 +123,27 @@ export function serializeRecord(
     url: l.url || '',
     description: l.description || '',
   }));
+  const pg = page || {};
+  const pageRow = {
+    generatedAt: pg.generatedAt || '',
+    path: pg.path || '',
+    previewUrl: pg.previewUrl || '',
+    editUrl: pg.editUrl || '',
+    status: pg.status || '',
+  };
+  const pf = preflight || {};
+  const preflightRows = (pf.categories || []).map((c) => ({
+    name: c.name,
+    passed: c.passed,
+    total: c.total,
+    score: c.score,
+    source: c.source,
+    ranAt: pf.ranAt || '',
+  }));
   return {
     ':type': 'multi-sheet',
-    ':version': 5,
-    ':names': ['meta', 'stages', 'steps', 'keywords', 'cannibalization', 'creativeDirection', 'brief', 'briefLinks'],
+    ':version': 6,
+    ':names': ['meta', 'stages', 'steps', 'keywords', 'cannibalization', 'creativeDirection', 'brief', 'briefLinks', 'page', 'preflight'],
     meta: sheet([meta]),
     stages: sheet(stageRows),
     steps: sheet(stepRows),
@@ -126,6 +152,8 @@ export function serializeRecord(
     creativeDirection: sheet([cdRow]),
     brief: sheet([briefRow]),
     briefLinks: sheet(briefLinkRows),
+    page: sheet([pageRow]),
+    preflight: sheet(preflightRows),
   };
 }
 
@@ -148,11 +176,17 @@ export async function saveStageState(context, daFetch, slug, project, { stageInd
   const gated = recomputeGating(next);
   const meta = { ...project.meta, status: deriveOverallStatus(gated) };
 
-  // Preserve the keyword list, cannibalization, creative-direction, and brief
-  // data across a status write.
+  // Preserve the keyword list, cannibalization, creative-direction, brief,
+  // page, and pre-flight data across a status write.
   const record = serializeRecord(
-    meta, gated, project.keywords, project.cannibalization,
-    project.creativeDirection, project.brief,
+    meta,
+    gated,
+    project.keywords,
+    project.cannibalization,
+    project.creativeDirection,
+    project.brief,
+    project.page,
+    project.preflight,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return { meta, stages: gated };
@@ -174,7 +208,14 @@ export async function saveKeywords(context, daFetch, slug, keywords) {
   const model = parseProject(await readProject(context, daFetch, slug));
   if (!model) throw new Error('Project not found.');
   const record = serializeRecord(
-    model.meta, model.stages, keywords, model.cannibalization, model.creativeDirection, model.brief,
+    model.meta,
+    model.stages,
+    keywords,
+    model.cannibalization,
+    model.creativeDirection,
+    model.brief,
+    model.page,
+    model.preflight,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return keywords;
@@ -195,7 +236,14 @@ export async function saveCannibalization(context, daFetch, slug, cannibalizatio
   const model = parseProject(await readProject(context, daFetch, slug));
   if (!model) throw new Error('Project not found.');
   const record = serializeRecord(
-    model.meta, model.stages, model.keywords, cannibalization, model.creativeDirection, model.brief,
+    model.meta,
+    model.stages,
+    model.keywords,
+    cannibalization,
+    model.creativeDirection,
+    model.brief,
+    model.page,
+    model.preflight,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return cannibalization;
@@ -219,7 +267,14 @@ export async function saveCreativeDirection(context, daFetch, slug, changes) {
   if (!model) throw new Error('Project not found.');
   const creativeDirection = { ...model.creativeDirection, ...changes };
   const record = serializeRecord(
-    model.meta, model.stages, model.keywords, model.cannibalization, creativeDirection, model.brief,
+    model.meta,
+    model.stages,
+    model.keywords,
+    model.cannibalization,
+    creativeDirection,
+    model.brief,
+    model.page,
+    model.preflight,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return creativeDirection;
@@ -243,8 +298,77 @@ export async function saveBrief(context, daFetch, slug, changes) {
   if (!model) throw new Error('Project not found.');
   const brief = { ...model.brief, ...changes };
   const record = serializeRecord(
-    model.meta, model.stages, model.keywords, model.cannibalization, model.creativeDirection, brief,
+    model.meta,
+    model.stages,
+    model.keywords,
+    model.cannibalization,
+    model.creativeDirection,
+    brief,
+    model.page,
+    model.preflight,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return brief;
+}
+
+/**
+ * Persist a Stage 4 generated-page change. Read-modify-write so a concurrent
+ * write is not clobbered, and the given part(s) are MERGED onto the current page
+ * so one panel's write does not drop another's. Pass any subset, e.g.
+ * `{ path }` or `{ generatedAt, previewUrl, editUrl, status }`.
+ * @param {{org: string, repo: string}} context
+ * @param {(url: string, opts?: object) => Promise<Response>} daFetch
+ * @param {string} slug
+ * @param {{generatedAt?, path?, previewUrl?, editUrl?, status?}} changes
+ * @returns {Promise<object>} the full merged page value
+ */
+export async function savePage(context, daFetch, slug, changes) {
+  const { org, repo: site } = context || {};
+  if (!org || !site || typeof daFetch !== 'function' || !slug) throw new Error('Missing DA context.');
+  const model = parseProject(await readProject(context, daFetch, slug));
+  if (!model) throw new Error('Project not found.');
+  const page = { ...model.page, ...changes };
+  const record = serializeRecord(
+    model.meta,
+    model.stages,
+    model.keywords,
+    model.cannibalization,
+    model.creativeDirection,
+    model.brief,
+    page,
+    model.preflight,
+  );
+  await writeRecord(org, site, slug, daFetch, record);
+  return page;
+}
+
+/**
+ * Persist a Stage 4 pre-flight result. Read-modify-write so a concurrent write
+ * is not clobbered, and the given part(s) are MERGED onto the current result.
+ * The pre-flight is written whole after a run, so `changes` is usually the full
+ * `{ ranAt, categories }`.
+ * @param {{org: string, repo: string}} context
+ * @param {(url: string, opts?: object) => Promise<Response>} daFetch
+ * @param {string} slug
+ * @param {{ranAt?: string, categories?: Array}} changes
+ * @returns {Promise<object>} the full merged pre-flight value
+ */
+export async function savePreflight(context, daFetch, slug, changes) {
+  const { org, repo: site } = context || {};
+  if (!org || !site || typeof daFetch !== 'function' || !slug) throw new Error('Missing DA context.');
+  const model = parseProject(await readProject(context, daFetch, slug));
+  if (!model) throw new Error('Project not found.');
+  const preflight = { ...model.preflight, ...changes };
+  const record = serializeRecord(
+    model.meta,
+    model.stages,
+    model.keywords,
+    model.cannibalization,
+    model.creativeDirection,
+    model.brief,
+    model.page,
+    preflight,
+  );
+  await writeRecord(org, site, slug, daFetch, record);
+  return preflight;
 }
