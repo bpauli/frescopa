@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  derivePagePath, pageUrls, cleanSections, buildInnerHtml, placeholderImageHtml,
+  derivePagePath, pageUrls, cleanSections, buildInnerHtml, placeholderImageHtml, placeholderLabel,
 } from './page-generation.js';
 
 test('derivePagePath slugifies segments and drops the extension', () => {
@@ -84,6 +84,15 @@ test('cleanSections caps the number of sections, paragraphs and bullets', () => 
 test('cleanSections returns an empty array for junk input', () => {
   assert.deepEqual(cleanSections(null), []);
   assert.deepEqual(cleanSections({ nope: 1 }), []);
+});
+
+test('placeholderLabel keeps a short description and cuts a long one at a word boundary', () => {
+  assert.equal(placeholderLabel('A cup of coffee'), 'A cup of coffee');
+  assert.equal(placeholderLabel(''), 'Image placeholder');
+  assert.equal(
+    placeholderLabel('A sleek espresso machine on a warm-toned kitchen counter pouring a shot.'),
+    'A sleek espresso machine on a warm-toned kitchen counter...',
+  );
 });
 
 test('placeholderImageHtml keeps the description in alt and never invents an asset', () => {

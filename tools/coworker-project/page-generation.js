@@ -15,7 +15,9 @@
 // customer's site is built here, deterministically and escaped.
 //
 // Images are PLACEHOLDERS: AO describes the wanted image in `alt` and never
-// invents an asset URL. Real asset generation is a later stage.
+// invents an asset URL. Real asset generation is a later stage. On preview the
+// aem.page pipeline ingests each placeholder into the site's own `./media`, so
+// the page carries no runtime dependency on the placeholder service.
 
 import { getCoworker } from './coworker.js';
 
@@ -31,6 +33,7 @@ const PLACEHOLDER_BASE = 'https://placehold.co/1600x900/e9e9e9/6b6b6b';
 const MAX_SECTIONS = 8;
 const MAX_PARAGRAPHS = 6;
 const MAX_BULLETS = 8;
+const PLACEHOLDER_LABEL_MAX = 60;
 
 const str = (v) => (typeof v === 'string' ? v.trim() : '');
 
@@ -191,14 +194,29 @@ export function cleanSections(raw, max = MAX_SECTIONS) {
 }
 
 /**
+ * The short label drawn inside a placeholder image: the description, cut at a
+ * word boundary so it does not break mid-word. Pure.
+ * @param {string} alt
+ * @returns {string}
+ */
+export function placeholderLabel(alt) {
+  const s = str(alt) || 'Image placeholder';
+  if (s.length <= PLACEHOLDER_LABEL_MAX) return s;
+  const cut = s.slice(0, PLACEHOLDER_LABEL_MAX);
+  const space = cut.lastIndexOf(' ');
+  const head = space > 20 ? cut.slice(0, space) : cut;
+  return `${head.replace(/[.,;:!?-]+$/, '')}...`;
+}
+
+/**
  * Placeholder image markup for a described image. The description is kept in
  * `alt` so a later stage can generate the real asset from it. Pure.
  * @param {string} alt
  * @returns {string}
  */
 export function placeholderImageHtml(alt) {
-  const text = encodeURIComponent((alt || 'Image placeholder').slice(0, 60));
-  return `<img src="${PLACEHOLDER_BASE}?text=${text}" alt="${escapeHtml(alt)}">`;
+  const text = encodeURIComponent(placeholderLabel(alt));
+  return `<img src="${PLACEHOLDER_BASE}?text=${text}" alt="${escapeHtml(str(alt))}">`;
 }
 
 /**
