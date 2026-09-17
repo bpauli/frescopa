@@ -4,8 +4,9 @@ import { LitElement, html } from 'da-lit';
 import { fetchTemplates } from './templates.js';
 import { createProject, slugify } from './project.js';
 import { listProjects, readProject, parseProject } from './projects.js';
-import { saveStageState, recomputeGating } from './stage-state.js';
+import { saveStageState, recomputeGating, saveCoworkerSession } from './stage-state.js';
 import { primaryOf } from './keyword-logic.js';
+import { getCoworker } from './coworker.js';
 import { suggestCreativeDirection } from './creative-direction.js';
 import './keyword-panel.js';
 import './cannibalization-panel.js';
@@ -206,6 +207,7 @@ class DaCoworkerProject extends LitElement {
         this._activeStage = defaultActiveStage(parsed.stages);
       }
       this._project = parsed;
+      this.bindCoworkerSession(slug, parsed);
       // A different project has its own creative-direction suggestions.
       this._cdSuggestions = null;
       this._cdLoadingSuggestions = false;
@@ -215,6 +217,23 @@ class DaCoworkerProject extends LitElement {
     } finally {
       this._loadingProject = false;
     }
+  }
+
+  /**
+   * Point the app-wide Coworker client at this project's AO chat (ticket #49).
+   * Every wizard contract call then joins ONE episode per producer instead of
+   * minting a new one, and the id AO reports for a fresh chat is persisted back
+   * onto the record. Persisting is best effort: a failed write only costs a new
+   * chat on the next visit, never a turn.
+   */
+  bindCoworkerSession(slug, parsed) {
+    const me = this.context?.user?.email || this.context?.user?.id || '';
+    const mine = parsed?.coworkerSessions?.find((r) => r.userId === me);
+    getCoworker(this.context).setSessionId(mine?.sessionId ?? null, (id) => {
+      if (!me) return;
+      saveCoworkerSession(this.context, this.actions?.daFetch, slug, { userId: me, sessionId: id })
+        .catch(() => {});
+    });
   }
 
   // Open an unlocked stage's panel.
