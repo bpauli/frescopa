@@ -10,11 +10,11 @@ DA iframes the app by appending `.html` to the URL path, so the path points at
 the file (`coworker-project/coworker-project`), not just the folder.
 
 - Local (needs `aem up` running at localhost:3000):
-  `https://da.live/app/exp-workspace/cxcfrescopa/tools/coworker-project/coworker-project?ref=local`
+  `https://da.live/app/bpauli/frescopa/tools/coworker-project/coworker-project?ref=local`
 - Branch: append `?ref=<branch>`; on `main`, omit `ref`.
 
 To show the app as a card in the DA UI, add a row to the `apps` config sheet at
-`https://da.live/config#/exp-workspace/cxcfrescopa/` (path
+`https://da.live/config#/bpauli/frescopa/` (path
 `/tools/coworker-project/coworker-project`).
 
 ## Structure

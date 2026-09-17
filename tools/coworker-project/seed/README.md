@@ -11,7 +11,7 @@ with an IMS bearer token:
 ```
 curl -X POST -H "Authorization: Bearer <TOKEN>" \
   -F "data=@project-stages.json;type=application/json" \
-  "https://admin.da.live/source/exp-workspace/cxcfrescopa/docs/library/project-stages.json"
+  "https://admin.da.live/source/bpauli/frescopa/docs/library/project-stages.json"
 ```
 
 The reader (`../stages.js`) first looks for a `coworker` config sheet row
