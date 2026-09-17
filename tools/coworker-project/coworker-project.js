@@ -6,7 +6,7 @@ import { createProject, slugify } from './project.js';
 import { listProjects, readProject, parseProject } from './projects.js';
 import { saveStageState, recomputeGating, saveCoworkerSession } from './stage-state.js';
 import { primaryOf } from './keyword-logic.js';
-import { getCoworker } from './coworker.js';
+import { getCoworker, coworkerUserId } from './coworker.js';
 import { suggestCreativeDirection } from './creative-direction.js';
 import './keyword-panel.js';
 import './cannibalization-panel.js';
@@ -207,7 +207,9 @@ class DaCoworkerProject extends LitElement {
         this._activeStage = defaultActiveStage(parsed.stages);
       }
       this._project = parsed;
-      this.bindCoworkerSession(slug, parsed);
+      // Bind before the stage hooks run, so the first AO call already joins the
+      // project's chat instead of opening one of its own.
+      await this.bindCoworkerSession(slug, parsed);
       // A different project has its own creative-direction suggestions.
       this._cdSuggestions = null;
       this._cdLoadingSuggestions = false;
@@ -223,12 +225,13 @@ class DaCoworkerProject extends LitElement {
    * Point the app-wide Coworker client at this project's AO chat (ticket #49).
    * Every wizard contract call then joins ONE episode per producer instead of
    * minting a new one, and the id AO reports for a fresh chat is persisted back
-   * onto the record. Persisting is best effort: a failed write only costs a new
-   * chat on the next visit, never a turn.
+   * onto the record. The row is keyed by the IMS user AO authenticates, because
+   * an episode is owned by that user. Persisting is best effort: a failed write
+   * only costs a new chat on the next visit, never a turn.
    */
-  bindCoworkerSession(slug, parsed) {
-    const me = this.context?.user?.email || this.context?.user?.id || '';
-    const mine = parsed?.coworkerSessions?.find((r) => r.userId === me);
+  async bindCoworkerSession(slug, parsed) {
+    const me = await coworkerUserId();
+    const mine = me ? parsed?.coworkerSessions?.find((r) => r.userId === me) : null;
     getCoworker(this.context).setSessionId(mine?.sessionId ?? null, (id) => {
       if (!me) return;
       saveCoworkerSession(this.context, this.actions?.daFetch, slug, { userId: me, sessionId: id })

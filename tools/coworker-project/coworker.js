@@ -146,6 +146,23 @@ async function getConnectionInfo() {
 }
 
 /**
+ * The identity AO attributes a turn to: the IMS profile's email (else its user
+ * id), read from the same cached profile the AUTH frame uses. AO episodes are
+ * owned by an IMS user, so this is the key a persisted session id is stored
+ * under. DA_SDK's app context carries no user, so this profile is the only
+ * identity the app has. Resolves to '' when there is no usable token.
+ * @returns {Promise<string>}
+ */
+export async function coworkerUserId() {
+  try {
+    const { authFrame } = await getConnectionInfo();
+    return authFrame['x-user-email'] || authFrame['x-user-id'] || '';
+  } catch {
+    return '';
+  }
+}
+
+/**
  * The AO socket URL for one turn. A bound episode id joins that chat; a falsy id
  * uses the `new` sentinel, which mints a fresh episode.
  * @param {string} wsBase
