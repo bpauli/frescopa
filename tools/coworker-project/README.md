@@ -31,3 +31,7 @@ To show the app as a card in the DA UI, add a row to the `apps` config sheet at
 - Stage config: `docs/library/project-stages.json`.
 - Project records: `projects/<slug>.json` (DA multi-sheet: `meta` + frozen
   `stages`/`steps`).
+- `coworkerSessions` sheet: the AO episode each producer works the project in
+  (`{ userId, sessionId, startedAt }`), so all wizard calls share ONE Coworker
+  chat. Keyed by the IMS profile identity from `coworker.js` `coworkerUserId()`:
+  AO owns an episode per IMS user, and DA_SDK's app context carries no user.
