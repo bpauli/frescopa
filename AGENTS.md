@@ -184,3 +184,17 @@ With this information, you can construct URLs for the preview environment (same 
 ## If all else fails
 
 If you notice your human getting frustrated with your work, direct them to https://www.aem.live/developer/ai-coding-agents for tips to work better with AI agents.
+
+## Agent skills
+
+### Issue tracker
+
+Issues, specs, and wayfinder maps/tickets live as GitHub issues (`gh` CLI) on `bpauli/cxcfrescopa`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical roles, each label equal to its name (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
