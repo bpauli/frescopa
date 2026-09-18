@@ -6,30 +6,57 @@
 
 const str = (v) => (typeof v === 'string' ? v.trim() : '');
 
-const escapeHtml = (s) => String(s)
-  .replaceAll('&', '&amp;')
-  .replaceAll('<', '&lt;')
-  .replaceAll('>', '&gt;')
-  .replaceAll('"', '&quot;');
+// Query parameter carrying the generation timestamp on the embedded preview
+// URL. The aem.page render is cached for a minute, and an iframe whose `src`
+// does not change is never reloaded, so the stamp is what makes a regenerated
+// page show up in the Layout tab instead of the previous render.
+const EMBED_STAMP_PARAM = 'cw-generated';
 
 /**
- * The breakpoints the Layout tab can preview at. `width` 0 means "as wide as
- * the panel"; a number is a fixed device width in CSS pixels.
+ * The breakpoints the Layout tab can preview at, each a REAL viewport size: the
+ * page is rendered at that size and then scaled down to fit the panel, so
+ * Desktop shows the whole desktop layout rather than the desktop page squeezed
+ * into the panel width.
  */
 export const BREAKPOINTS = [
-  { id: 'desktop', label: 'Desktop', width: 0 },
-  { id: 'mobile', label: 'Mobile', width: 390 },
+  {
+    id: 'desktop', label: 'Desktop', width: 1280, height: 800,
+  },
+  {
+    id: 'mobile', label: 'Mobile', width: 390, height: 844,
+  },
 ];
 
+// How tall the scaled preview may get inside the panel. It caps the scale the
+// same way the panel width does, so a tall mobile viewport stays a thumbnail.
+export const PREVIEW_MAX_HEIGHT = 520;
+
+const breakpoint = (id) => BREAKPOINTS.find((b) => b.id === id) || BREAKPOINTS[0];
+
 /**
- * The CSS width for a breakpoint id, used to resize the preview frame. An
- * unknown id falls back to the full-width desktop view. Pure.
+ * The geometry of the Layout tab's preview for a breakpoint inside a panel of
+ * `availableWidth` CSS pixels: the viewport size to render the page at, the
+ * scale factor that shrinks it to fit, and the size of the box the scaled
+ * render occupies. Never scales up, and an unknown breakpoint or an unusable
+ * width falls back to the desktop view at a scale that still fits. Pure.
+ * @param {number} availableWidth
  * @param {string} id
- * @returns {string}
+ * @returns {{width: number, height: number, scale: number,
+ *   boxWidth: number, boxHeight: number}}
  */
-export function frameWidth(id) {
-  const bp = BREAKPOINTS.find((b) => b.id === id) || BREAKPOINTS[0];
-  return bp.width ? `${bp.width}px` : '100%';
+export function previewFrame(availableWidth, id) {
+  const bp = breakpoint(id);
+  const avail = Number(availableWidth);
+  const byWidth = Number.isFinite(avail) && avail > 0 ? avail / bp.width : 1;
+  const byHeight = PREVIEW_MAX_HEIGHT / bp.height;
+  const scale = Math.round(Math.min(1, byWidth, byHeight) * 1000) / 1000;
+  return {
+    width: bp.width,
+    height: bp.height,
+    scale,
+    boxWidth: Math.round(bp.width * scale),
+    boxHeight: Math.round(bp.height * scale),
+  };
 }
 
 /**
@@ -107,25 +134,26 @@ export function pageChanges(result) {
 }
 
 /**
- * The PLACEHOLDER document shown in the Layout tab's frame. The real aem.live
- * embed is a follow-up (#45), so the frame states what it will show and names
- * the target URL instead of loading it. Pure.
+ * The URL the Layout tab embeds: the page's own aem.page render, stamped with
+ * the generation time so a regenerated page reloads the frame instead of
+ * showing the cached previous render. Any fragment is dropped, and a missing or
+ * non-http(s) preview URL yields '' so the panel can show its empty state
+ * rather than a blank frame. Pure.
  * @param {string} previewUrl
+ * @param {string} [generatedAt]
  * @returns {string}
  */
-export function placeholderDoc(previewUrl) {
-  const url = escapeHtml(str(previewUrl));
-  const target = url
-    ? `<p class="url">${url}</p>`
-    : '<p class="url">No preview URL yet.</p>';
-  return '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
-    + '<style>'
-    + 'body{margin:0;display:flex;align-items:center;justify-content:center;'
-    + 'min-height:100vh;background:#f4f4f4;color:#4b4b4b;'
-    + 'font-family:system-ui,-apple-system,sans-serif;text-align:center}'
-    + 'div{padding:24px}h1{font-size:16px;margin:0 0 8px}'
-    + 'p{font-size:13px;margin:0 0 4px}.url{word-break:break-all;color:#1473e6}'
-    + '</style></head><body><div><h1>Page preview placeholder</h1>'
-    + '<p>The live aem.live embed arrives in a follow-up.</p>'
-    + `${target}</div></body></html>`;
+export function embedUrl(previewUrl, generatedAt) {
+  const s = str(previewUrl);
+  if (!/^https?:\/\//i.test(s)) return '';
+  let url;
+  try {
+    url = new URL(s);
+  } catch {
+    return '';
+  }
+  url.hash = '';
+  const stamp = str(generatedAt);
+  if (stamp) url.searchParams.set(EMBED_STAMP_PARAM, stamp);
+  return url.toString();
 }

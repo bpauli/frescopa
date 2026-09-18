@@ -1027,12 +1027,29 @@ da-coworker-project .cw-pp-frame-wrap {
   border-radius: var(--s2-corner-radius-300);
 }
 
-da-coworker-project .cw-pp-frame {
-  height: 480px;
+da-coworker-project .cw-pp-frame-box {
+  position: relative;
   max-width: 100%;
+  overflow: hidden;
   background: var(--s2-gray-25);
   border: 1px solid var(--s2-gray-300);
   border-radius: var(--s2-corner-radius-200);
+}
+
+/* Rendered at the breakpoint's real viewport size, then scaled into the box
+   above: a picture of the page, so it takes no pointer events. */
+da-coworker-project .cw-pp-frame {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
+  pointer-events: none;
+  background: var(--s2-gray-25);
+  border: 0;
+}
+
+da-coworker-project .cw-pp-embed-note {
+  margin: var(--s2-spacing-100) 0 0;
 }
 
 da-coworker-project .cw-pp-content {
