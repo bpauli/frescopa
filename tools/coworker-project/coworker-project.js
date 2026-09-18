@@ -20,6 +20,7 @@ import './destination-url-panel.js';
 import './brief-links-panel.js';
 import './page-preview-panel.js';
 import './preflight-panel.js';
+import './approvals-panel.js';
 
 // Coworker Projects app. Round one routes between three views:
 //   list    - the projects landing (the front door)
@@ -629,13 +630,23 @@ class DaCoworkerProject extends LitElement {
       </div>`;
   }
 
-  // Stage 4's completion control: Complete only when the page is generated and
-  // the pre-flight check has run; Reopen re-locks Stage 5. No approval gate -
-  // approvals are ticket #46. (ticket #44)
+  // Stage 4's completion control. Two ways out of the stage, both of which
+  // unlock Stage 5: "Complete Stage 4" once the page is generated and the
+  // pre-flight ran (ticket #44), and the stronger "Approved" the approvals gate
+  // reaches at 4/4 (ticket #46). Reopen re-locks Stage 5.
   renderStage4Control(stage) {
     const saving = this._savingStage
       ? html`<span class="cw-saving"><span class="nx-loading-spinner"></span>Saving...</span>` : '';
-    if (stage.status === 'Complete' || stage.status === 'Approved') {
+    if (stage.status === 'Approved') {
+      return html`
+        <div class="cw-controls">
+          <span class="cw-stage-done">&#9733; Stage 4 approved - Stage 5 is unlocked.</span>
+          <button class="nx-action-btn" ?disabled=${this._savingStage}
+            @click=${() => this.changeStage(stage.stageIndex, 'In Progress')}>Reopen</button>
+          ${saving}
+        </div>`;
+    }
+    if (stage.status === 'Complete') {
       return html`
         <div class="cw-controls">
           <span class="cw-stage-done">&#10003; Stage 4 complete - Stage 5 is unlocked.</span>
@@ -770,8 +781,17 @@ class DaCoworkerProject extends LitElement {
       const page = this._project.page ?? null;
       const preflight = this._project.preflight ?? null;
       const daFetch = this.actions?.daFetch;
+      // Approvals can only be granted once the stage's work is done - the same
+      // readiness rule that guards "Complete Stage 4". (#46)
+      const { ready, reason } = stage4Readiness(page, preflight);
       return html`
         ${title}
+        <da-approvals-panel
+          .context=${this.context} .daFetch=${daFetch} .slug=${this._selectedSlug}
+          .stageIndex=${stage.stageIndex} .approvals=${this._project.approvals ?? []}
+          .artifactUrl=${page?.previewUrl || page?.editUrl || ''}
+          .locked=${!ready} .lockedReason=${reason}
+          @approvals-changed=${(e) => this.onApprovalsChanged(e)}></da-approvals-panel>
         <div class="cw-cd-row cw-pg-row">
           <div class="cw-card">
             <da-page-preview-panel
@@ -820,6 +840,24 @@ class DaCoworkerProject extends LitElement {
   onAddToChat(e) {
     const text = e.detail?.text;
     if (text) this.querySelector('da-chat-rail')?.prefill(text);
+  }
+
+  // The approvals gate moved: keep the cache in sync, then let the stage status
+  // follow it. A met gate takes the stage to "Approved" (the strongest status,
+  // which unlocks the next stage like "Complete" does); withdrawing a sign-off
+  // from an approved stage takes it back to "In Progress", which re-locks the
+  // next stage exactly like Reopen. Stage-agnostic on purpose - stages 5 and 7
+  // reuse it. (ticket #46)
+  onApprovalsChanged(e) {
+    const { approvals, stageIndex, fullyApproved } = e.detail ?? {};
+    this._project = { ...this._project, approvals: approvals ?? [] };
+    const stage = this._project.stages.find((s) => s.stageIndex === stageIndex);
+    if (!stage) return;
+    if (fullyApproved && stage.status !== 'Approved') {
+      this.changeStage(stageIndex, 'Approved');
+    } else if (!fullyApproved && stage.status === 'Approved') {
+      this.changeStage(stageIndex, 'In Progress');
+    }
   }
 
   renderProject() {
