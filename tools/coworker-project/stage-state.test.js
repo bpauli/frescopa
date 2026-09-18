@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { parseProject } from './projects.js';
 import {
-  serializeRecord, savePage, savePreflight, saveBrief,
+  serializeRecord, savePage, savePreflight, saveBrief, saveCoworkerSession, saveKeywords,
 } from './stage-state.js';
 
 // A fake daFetch backed by a single in-memory record: a GET (no options) reads
@@ -84,4 +84,58 @@ test('savePreflight preserves the page sheet across its write', async () => {
   const written = parseProject(writes[0]);
   assert.deepEqual(written.preflight, preflight);
   assert.deepEqual(written.page, page);
+});
+
+test('saveCoworkerSession stores the episode id keyed by user', async () => {
+  const record = serializeRecord({ slug: 'x' }, [], [], null, null, null, page, preflight);
+  const { daFetch, writes } = fakeDa(record);
+
+  await saveCoworkerSession(ctx, daFetch, 'x', { userId: 'a@x.com', sessionId: '7301' });
+
+  const written = parseProject(writes[0]);
+  assert.equal(written.coworkerSessions.length, 1);
+  assert.equal(written.coworkerSessions[0].userId, 'a@x.com');
+  assert.equal(written.coworkerSessions[0].sessionId, '7301');
+  assert.ok(written.coworkerSessions[0].startedAt);
+  // The rest of the record survives the write.
+  assert.deepEqual(written.page, page);
+  assert.deepEqual(written.preflight, preflight);
+});
+
+test('saveCoworkerSession replaces only the calling producer\'s row', async () => {
+  const rows = [{ userId: 'a@x.com', sessionId: '1', startedAt: 't1' }];
+  const record = serializeRecord({ slug: 'x' }, [], [], null, null, null, null, null, rows);
+  const { daFetch, writes } = fakeDa(record);
+
+  await saveCoworkerSession(ctx, daFetch, 'x', { userId: 'b@x.com', sessionId: '2' });
+
+  const written = parseProject(writes[0]);
+  assert.deepEqual(
+    written.coworkerSessions.map((r) => [r.userId, r.sessionId]).sort(),
+    [['a@x.com', '1'], ['b@x.com', '2']],
+  );
+});
+
+test('saveCoworkerSession with no id drops the row (a refused episode is forgotten)', async () => {
+  const rows = [
+    { userId: 'a@x.com', sessionId: '1', startedAt: 't1' },
+    { userId: 'b@x.com', sessionId: '2', startedAt: 't2' },
+  ];
+  const record = serializeRecord({ slug: 'x' }, [], [], null, null, null, null, null, rows);
+  const { daFetch, writes } = fakeDa(record);
+
+  await saveCoworkerSession(ctx, daFetch, 'x', { userId: 'a@x.com', sessionId: null });
+
+  const written = parseProject(writes[0]);
+  assert.deepEqual(written.coworkerSessions.map((r) => r.userId), ['b@x.com']);
+});
+
+test('another stage write preserves the coworkerSessions sheet', async () => {
+  const rows = [{ userId: 'a@x.com', sessionId: '7301', startedAt: 't1' }];
+  const record = serializeRecord({ slug: 'x' }, [], [], null, null, null, null, null, rows);
+  const { daFetch, writes } = fakeDa(record);
+
+  await saveKeywords(ctx, daFetch, 'x', [{ text: 'k', role: 'primary' }]);
+
+  assert.deepEqual(parseProject(writes[0]).coworkerSessions, rows);
 });

@@ -58,12 +58,16 @@ export function deriveOverallStatus(stages) {
 
 /**
  * Rebuild the multi-sheet record from the parsed view model. The `keywords`,
- * `cannibalization`, `creativeDirection`, `brief`, `page`, and `preflight`
- * sheets hold the stage data; all are always written (empty when there is none)
- * so a save never drops them. The cannibalization check timestamp is denormalized
- * onto each competitor row and the pre-flight run timestamp onto each category
- * row; the creative-direction selection and the generated page are each a single
- * flat row (palette colors comma-joined).
+ * `cannibalization`, `creativeDirection`, `brief`, `preflight`, and
+ * `coworkerSessions` sheets hold the stage data; all are always written (empty
+ * when there is none) so a save never drops them. The cannibalization check
+ * timestamp is denormalized onto each competitor row and the pre-flight run
+ * timestamp onto each category row; the creative-direction selection and the
+ * generated page are each a single flat row (palette colors comma-joined).
+ *
+ * `coworkerSessions` is one row per producer (`{ userId, sessionId, startedAt }`):
+ * AO episodes are owned by an IMS user, so the project's Coworker chat is per
+ * user (ticket #49).
  */
 export function serializeRecord(
   meta,
@@ -74,6 +78,7 @@ export function serializeRecord(
   brief = null,
   page = null,
   preflight = null,
+  coworkerSessions = [],
 ) {
   const ordered = [...stages].sort((a, b) => a.stageIndex - b.stageIndex);
   const stageRows = ordered.map((s) => ({
@@ -140,10 +145,17 @@ export function serializeRecord(
     source: c.source,
     ranAt: pf.ranAt || '',
   }));
+  const sessionRows = (coworkerSessions || [])
+    .filter((r) => r && r.userId && r.sessionId)
+    .map((r) => ({
+      userId: r.userId,
+      sessionId: String(r.sessionId),
+      startedAt: r.startedAt || '',
+    }));
   return {
     ':type': 'multi-sheet',
-    ':version': 6,
-    ':names': ['meta', 'stages', 'steps', 'keywords', 'cannibalization', 'creativeDirection', 'brief', 'briefLinks', 'page', 'preflight'],
+    ':version': 7,
+    ':names': ['meta', 'stages', 'steps', 'keywords', 'cannibalization', 'creativeDirection', 'brief', 'briefLinks', 'page', 'preflight', 'coworkerSessions'],
     meta: sheet([meta]),
     stages: sheet(stageRows),
     steps: sheet(stepRows),
@@ -154,6 +166,7 @@ export function serializeRecord(
     briefLinks: sheet(briefLinkRows),
     page: sheet([pageRow]),
     preflight: sheet(preflightRows),
+    coworkerSessions: sheet(sessionRows),
   };
 }
 
@@ -177,7 +190,7 @@ export async function saveStageState(context, daFetch, slug, project, { stageInd
   const meta = { ...project.meta, status: deriveOverallStatus(gated) };
 
   // Preserve the keyword list, cannibalization, creative-direction, brief,
-  // page, and pre-flight data across a status write.
+  // page, pre-flight, and Coworker-session data across a status write.
   const record = serializeRecord(
     meta,
     gated,
@@ -187,6 +200,7 @@ export async function saveStageState(context, daFetch, slug, project, { stageInd
     project.brief,
     project.page,
     project.preflight,
+    project.coworkerSessions,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return { meta, stages: gated };
@@ -216,6 +230,7 @@ export async function saveKeywords(context, daFetch, slug, keywords) {
     model.brief,
     model.page,
     model.preflight,
+    model.coworkerSessions,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return keywords;
@@ -244,6 +259,7 @@ export async function saveCannibalization(context, daFetch, slug, cannibalizatio
     model.brief,
     model.page,
     model.preflight,
+    model.coworkerSessions,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return cannibalization;
@@ -275,6 +291,7 @@ export async function saveCreativeDirection(context, daFetch, slug, changes) {
     model.brief,
     model.page,
     model.preflight,
+    model.coworkerSessions,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return creativeDirection;
@@ -306,6 +323,7 @@ export async function saveBrief(context, daFetch, slug, changes) {
     brief,
     model.page,
     model.preflight,
+    model.coworkerSessions,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return brief;
@@ -337,6 +355,7 @@ export async function savePage(context, daFetch, slug, changes) {
     model.brief,
     page,
     model.preflight,
+    model.coworkerSessions,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return page;
@@ -368,7 +387,46 @@ export async function savePreflight(context, daFetch, slug, changes) {
     model.brief,
     model.page,
     preflight,
+    model.coworkerSessions,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return preflight;
+}
+
+/**
+ * Persist the AO episode ("Coworker chat") this producer works the project in,
+ * so every later wizard call joins that one chat instead of minting a new one
+ * (ticket #49). Read-modify-write so a concurrent write is not clobbered; the
+ * row is keyed by user because AO episodes are owned by an IMS user. A falsy
+ * `sessionId` drops the user's row, which is how an episode AO refused is
+ * forgotten.
+ * @param {{org: string, repo: string}} context
+ * @param {(url: string, opts?: object) => Promise<Response>} daFetch
+ * @param {string} slug
+ * @param {{userId: string, sessionId: string|null}} session
+ * @returns {Promise<Array<{userId, sessionId, startedAt}>>} the saved rows
+ */
+export async function saveCoworkerSession(context, daFetch, slug, { userId, sessionId } = {}) {
+  const { org, repo: site } = context || {};
+  if (!org || !site || typeof daFetch !== 'function' || !slug) throw new Error('Missing DA context.');
+  if (!userId) throw new Error('Missing user.');
+  const model = parseProject(await readProject(context, daFetch, slug));
+  if (!model) throw new Error('Project not found.');
+  const others = (model.coworkerSessions || []).filter((r) => r.userId !== userId);
+  const coworkerSessions = sessionId
+    ? [...others, { userId, sessionId: String(sessionId), startedAt: new Date().toISOString() }]
+    : others;
+  const record = serializeRecord(
+    model.meta,
+    model.stages,
+    model.keywords,
+    model.cannibalization,
+    model.creativeDirection,
+    model.brief,
+    model.page,
+    model.preflight,
+    coworkerSessions,
+  );
+  await writeRecord(org, site, slug, daFetch, record);
+  return coworkerSessions;
 }

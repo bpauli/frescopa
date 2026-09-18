@@ -12,8 +12,14 @@
 // DA_SDK's refresh listener), which we read via `initIms()` from daFetch. From
 // that token we fetch the IMS profile once for the org/tenant/user fields the
 // AUTH frame needs. Protocol (verified for ticket #11): open
-// `${wsBase}/ws/sessions/new`, send AUTH then USER_INPUT, collect
+// `${wsBase}/ws/sessions/{episode}`, send AUTH then USER_INPUT, collect
 // text_delta/text_done, resolve on turn_completed.
+//
+// `{episode}` is a path parameter, not a fixed endpoint: the sentinel `new`
+// mints a fresh AO episode (one "Recents" chat), while an episode id joins that
+// existing chat and accumulates turns in it. Ticket #49: the wizard binds the
+// project's episode id so all its contract calls land in ONE chat per producer,
+// instead of one chat per call.
 
 const DAFETCH_URL = 'https://da.live/nx/utils/daFetch.js';
 const IMS_PROFILE_URL = 'https://ims-na1.adobelogin.com/ims/profile/v1?client_id=darkalley';
@@ -140,6 +146,46 @@ async function getConnectionInfo() {
 }
 
 /**
+ * The identity AO attributes a turn to: the IMS profile's email (else its user
+ * id), read from the same cached profile the AUTH frame uses. AO episodes are
+ * owned by an IMS user, so this is the key a persisted session id is stored
+ * under. DA_SDK's app context carries no user, so this profile is the only
+ * identity the app has. Resolves to '' when there is no usable token.
+ * @returns {Promise<string>}
+ */
+export async function coworkerUserId() {
+  try {
+    const { authFrame } = await getConnectionInfo();
+    return authFrame['x-user-email'] || authFrame['x-user-id'] || '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * The AO socket URL for one turn. A bound episode id joins that chat; a falsy id
+ * uses the `new` sentinel, which mints a fresh episode.
+ * @param {string} wsBase
+ * @param {string|null} [sessionId]
+ * @returns {string}
+ */
+export function sessionUrl(wsBase, sessionId) {
+  return `${wsBase}/ws/sessions/${sessionId || 'new'}`;
+}
+
+/**
+ * True for the AO rejections that mean "this episode id cannot be served" -
+ * deleted, archived, or owned by another user. AO replies with an ERROR frame
+ * and then closes 1008. Such a turn is safe to retry on a fresh session.
+ * @param {string} message
+ * @returns {boolean}
+ */
+export function isStaleSessionError(message) {
+  const m = String(message || '');
+  return /episode not found/i.test(m) || /invalid episode_id/i.test(m);
+}
+
+/**
  * A dedicated Coworker (AO) client for structured, one-shot prompts.
  */
 export class Coworker {
@@ -149,6 +195,46 @@ export class Coworker {
     this._site = site;
     // AO rejects a new turn while one is in flight, so serialize calls.
     this._lock = Promise.resolve();
+    // The AO episode every turn joins. `null` means "not opened yet": the next
+    // turn opens `sessions/new` and adopts the id AO reports in SESSION_READY.
+    this._sessionId = null;
+    this._onSessionId = null;
+  }
+
+  /**
+   * Bind the AO episode later turns join. Pass a persisted id to continue that
+   * chat, or `null` to open a fresh one on the next turn. `onSessionId` is
+   * called once with each newly adopted id (and with `null` when a bound episode
+   * turns out to be unusable) so the caller can persist it.
+   * @param {string|null} id
+   * @param {(id: string|null) => void} [onSessionId]
+   */
+  setSessionId(id, onSessionId) {
+    this._sessionId = id || null;
+    this._onSessionId = typeof onSessionId === 'function' ? onSessionId : null;
+  }
+
+  /** Forget the bound episode; the next turn opens a fresh chat. */
+  resetSession() {
+    this.setSessionId(null, null);
+  }
+
+  /** The bound AO episode id, or null. */
+  getSessionId() {
+    return this._sessionId;
+  }
+
+  // Remember the episode AO just reported and hand it to the persister once.
+  _adoptSession(id) {
+    if (!id || id === this._sessionId) return;
+    this._sessionId = id;
+    try { this._onSessionId?.(id); } catch { /* best effort - never block the turn */ }
+  }
+
+  // Drop an episode AO refused, so the next turn starts a fresh chat.
+  _dropSession() {
+    this._sessionId = null;
+    try { this._onSessionId?.(null); } catch { /* best effort - never block the turn */ }
   }
 
   // eslint-disable-next-line class-methods-use-this
@@ -163,9 +249,21 @@ export class Coworker {
    * @returns {Promise<string>}
    */
   async ask(prompt, { timeoutMs = 60000 } = {}) {
-    const run = this._lock.then(() => this._ask(prompt, timeoutMs));
+    const run = this._lock.then(() => this._askOnce(prompt, timeoutMs));
     this._lock = run.catch(() => {});
     return run;
+  }
+
+  // One turn, with a single recovery: an episode AO cannot serve costs a chat,
+  // never a turn, so drop the id and retry on `new`.
+  async _askOnce(prompt, timeoutMs) {
+    try {
+      return await this._ask(prompt, timeoutMs);
+    } catch (e) {
+      if (!this._sessionId || !isStaleSessionError(e?.message)) throw e;
+      this._dropSession();
+      return this._ask(prompt, timeoutMs);
+    }
   }
 
   _ask(prompt, timeoutMs) {
@@ -185,7 +283,7 @@ export class Coworker {
       timer = setTimeout(() => finish(reject, new Error('coworker timeout')), timeoutMs);
 
       this._connectionInfo().then(({ authFrame, wsBase }) => {
-        ws = new WebSocket(`${wsBase}/ws/sessions/new`);
+        ws = new WebSocket(sessionUrl(wsBase, this._sessionId));
         const send = (o) => ws.send(JSON.stringify(o));
         ws.addEventListener('open', () => {
           // AO expects AUTH then USER_INPUT; SESSION_READY arrives after.
@@ -206,7 +304,10 @@ export class Coworker {
           if (evt.type === 'text_delta') streamed += evt.data?.content ?? '';
           else if (evt.type === 'text_done') finalText = evt.data?.content ?? streamed;
           else if (evt.type === 'turn_completed') finish(resolve, finalText ?? streamed);
-          else if (evt.type === 'error' || evt.type === 'ERROR') {
+          else if (evt.type === 'SESSION_READY') {
+            // The episode this turn runs in - remembered so the next turn joins it.
+            this._adoptSession(evt.episode_id || evt.context_id);
+          } else if (evt.type === 'error' || evt.type === 'ERROR') {
             finish(reject, new Error(evt.data?.message || evt.message || 'AO error'));
           } else autoHandle(evt, send);
         });
@@ -253,7 +354,11 @@ export function getCoworker(context) {
 /**
  * A persistent, multi-turn Coworker (AO) chat session for the "Ask anything"
  * rail (ticket #29). Unlike the one-shot `Coworker`, it keeps ONE WebSocket
- * session open so AO retains conversation memory across turns. A stage-context
+ * session open so AO retains conversation memory across turns. It deliberately
+ * keeps its OWN episode (`sessions/new`) rather than joining the project chat
+ * the wizard binds (#49): the rail and the wizard hold separate turn locks, so
+ * sharing one episode needs a shared lock first - a follow-up ticket.
+ * A stage-context
  * preamble can be set/replaced (used by the rail, #30) and is prepended to the
  * next message only when it has changed, so context stays fresh without being
  * resent every turn. Responses are one-shot (resolved on turn_completed);

@@ -77,13 +77,15 @@ const cdSource = (v) => {
  * Parse a project record into a view model: the meta row, stages ordered by
  * stageIndex (each with its ordered steps), the Stage 1 keyword list and
  * cannibalization result, the Stage 2 creative-direction selection, the
- * Stage 3 brief, and the Stage 4 generated page and pre-flight result.
+ * Stage 3 brief, the Stage 4 generated page and pre-flight result, and the
+ * per-producer Coworker session rows.
  * @returns {{meta: object, stages: Array<{stage, stageIndex, status, steps}>,
  *   keywords: Array<{text, role}>, cannibalization: object,
  *   creativeDirection: {baseTemplate, visualStyle, colorPalette},
  *   brief: {title, body, destinationUrl, links: Array},
  *   page: {generatedAt, path, previewUrl, editUrl, status},
- *   preflight: {ranAt, categories: Array<{name, passed, total, score, source}>}} | null}
+ *   preflight: {ranAt, categories: Array<{name, passed, total, score, source}>},
+ *   coworkerSessions: Array<{userId, sessionId, startedAt}>} | null}
  */
 export function parseProject(record) {
   if (!record || typeof record !== 'object') return null;
@@ -177,7 +179,24 @@ export function parseProject(record) {
       }))
       .filter((c) => c.name),
   };
+  // One row per producer: AO episodes are owned by an IMS user, so the project's
+  // Coworker chat is per user (ticket #49). An older record has no sheet -> [].
+  const coworkerSessions = (record.coworkerSessions?.data ?? [])
+    .map((r) => ({
+      userId: String(r.userId ?? '').trim(),
+      sessionId: String(r.sessionId ?? '').trim(),
+      startedAt: r.startedAt || '',
+    }))
+    .filter((r) => r.userId && r.sessionId);
   return {
-    meta, stages, keywords, cannibalization, creativeDirection, brief, page, preflight,
+    meta,
+    stages,
+    keywords,
+    cannibalization,
+    creativeDirection,
+    brief,
+    page,
+    preflight,
+    coworkerSessions,
   };
 }
