@@ -68,6 +68,10 @@ export function deriveOverallStatus(stages) {
  * `coworkerSessions` is one row per producer (`{ userId, sessionId, startedAt }`):
  * AO episodes are owned by an IMS user, so the project's Coworker chat is per
  * user (ticket #49).
+ *
+ * `approvals` is one row per named sign-off, keyed by stage
+ * (`{ stageIndex, name, approved, approvedAt }`), so the one sheet carries every
+ * stage's approvals - the gate is reused by stages 4, 5, and 7 (ticket #46).
  */
 export function serializeRecord(
   meta,
@@ -79,6 +83,7 @@ export function serializeRecord(
   page = null,
   preflight = null,
   coworkerSessions = [],
+  approvals = [],
 ) {
   const ordered = [...stages].sort((a, b) => a.stageIndex - b.stageIndex);
   const stageRows = ordered.map((s) => ({
@@ -152,10 +157,18 @@ export function serializeRecord(
       sessionId: String(r.sessionId),
       startedAt: r.startedAt || '',
     }));
+  const approvalRows = (approvals || [])
+    .filter((r) => r && Number(r.stageIndex) && String(r.name || '').trim())
+    .map((r) => ({
+      stageIndex: Number(r.stageIndex),
+      name: String(r.name).trim(),
+      approved: !!r.approved,
+      approvedAt: r.approved ? (r.approvedAt || '') : '',
+    }));
   return {
     ':type': 'multi-sheet',
-    ':version': 7,
-    ':names': ['meta', 'stages', 'steps', 'keywords', 'cannibalization', 'creativeDirection', 'brief', 'briefLinks', 'page', 'preflight', 'coworkerSessions'],
+    ':version': 8,
+    ':names': ['meta', 'stages', 'steps', 'keywords', 'cannibalization', 'creativeDirection', 'brief', 'briefLinks', 'page', 'preflight', 'coworkerSessions', 'approvals'],
     meta: sheet([meta]),
     stages: sheet(stageRows),
     steps: sheet(stepRows),
@@ -167,6 +180,7 @@ export function serializeRecord(
     page: sheet([pageRow]),
     preflight: sheet(preflightRows),
     coworkerSessions: sheet(sessionRows),
+    approvals: sheet(approvalRows),
   };
 }
 
@@ -190,7 +204,7 @@ export async function saveStageState(context, daFetch, slug, project, { stageInd
   const meta = { ...project.meta, status: deriveOverallStatus(gated) };
 
   // Preserve the keyword list, cannibalization, creative-direction, brief,
-  // page, pre-flight, and Coworker-session data across a status write.
+  // page, pre-flight, Coworker-session, and approvals data across a status write.
   const record = serializeRecord(
     meta,
     gated,
@@ -201,6 +215,7 @@ export async function saveStageState(context, daFetch, slug, project, { stageInd
     project.page,
     project.preflight,
     project.coworkerSessions,
+    project.approvals,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return { meta, stages: gated };
@@ -231,6 +246,7 @@ export async function saveKeywords(context, daFetch, slug, keywords) {
     model.page,
     model.preflight,
     model.coworkerSessions,
+    model.approvals,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return keywords;
@@ -260,6 +276,7 @@ export async function saveCannibalization(context, daFetch, slug, cannibalizatio
     model.page,
     model.preflight,
     model.coworkerSessions,
+    model.approvals,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return cannibalization;
@@ -292,6 +309,7 @@ export async function saveCreativeDirection(context, daFetch, slug, changes) {
     model.page,
     model.preflight,
     model.coworkerSessions,
+    model.approvals,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return creativeDirection;
@@ -324,6 +342,7 @@ export async function saveBrief(context, daFetch, slug, changes) {
     model.page,
     model.preflight,
     model.coworkerSessions,
+    model.approvals,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return brief;
@@ -356,6 +375,7 @@ export async function savePage(context, daFetch, slug, changes) {
     page,
     model.preflight,
     model.coworkerSessions,
+    model.approvals,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return page;
@@ -388,6 +408,7 @@ export async function savePreflight(context, daFetch, slug, changes) {
     model.page,
     preflight,
     model.coworkerSessions,
+    model.approvals,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return preflight;
@@ -426,7 +447,47 @@ export async function saveCoworkerSession(context, daFetch, slug, { userId, sess
     model.page,
     model.preflight,
     coworkerSessions,
+    model.approvals,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return coworkerSessions;
+}
+
+/**
+ * Persist one stage's named approvals (ticket #46). Read-modify-write so a
+ * concurrent write is not clobbered, and keyed BY STAGE: only the named stage's
+ * rows are replaced, every other stage's sign-offs are kept. That is what lets
+ * stages 4, 5, and 7 share the one sheet.
+ * @param {{org: string, repo: string}} context
+ * @param {(url: string, opts?: object) => Promise<Response>} daFetch
+ * @param {string} slug
+ * @param {{stageIndex: number, approvals: Array<{name, approved, approvedAt}>}} changes
+ * @returns {Promise<Array<{stageIndex, name, approved, approvedAt}>>} every stage's rows
+ */
+export async function saveApprovals(context, daFetch, slug, { stageIndex, approvals } = {}) {
+  const { org, repo: site } = context || {};
+  if (!org || !site || typeof daFetch !== 'function' || !slug) throw new Error('Missing DA context.');
+  const idx = Number(stageIndex);
+  if (!idx) throw new Error('Missing stage.');
+  const model = parseProject(await readProject(context, daFetch, slug));
+  if (!model) throw new Error('Project not found.');
+  const others = (model.approvals || []).filter((r) => Number(r.stageIndex) !== idx);
+  const merged = [
+    ...others,
+    ...(approvals || []).map((r) => ({ ...r, stageIndex: idx })),
+  ];
+  const record = serializeRecord(
+    model.meta,
+    model.stages,
+    model.keywords,
+    model.cannibalization,
+    model.creativeDirection,
+    model.brief,
+    model.page,
+    model.preflight,
+    model.coworkerSessions,
+    merged,
+  );
+  await writeRecord(org, site, slug, daFetch, record);
+  return merged;
 }

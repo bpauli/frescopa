@@ -1166,3 +1166,106 @@ da-coworker-project .cw-pf-detail {
   color: var(--s2-gray-700);
   font-size: var(--s2-component-s-regular-font-size);
 }
+
+/* --- Approvals gate (stages 4, 5, 7) --- */
+da-coworker-project .cw-ap {
+  margin: 0 0 var(--s2-spacing-200);
+}
+
+da-coworker-project .cw-ap-head {
+  display: flex;
+  gap: var(--s2-spacing-100);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+da-coworker-project .cw-ap-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  font-size: 12px;
+  color: var(--s2-gray-25);
+  background: var(--s2-gray-500);
+  border-radius: 50%;
+}
+
+da-coworker-project .cw-ap-icon.is-done {
+  background: var(--s2-green-900);
+}
+
+da-coworker-project .cw-ap-title {
+  margin: 0;
+  font-size: var(--s2-component-m-regular-font-size);
+  font-weight: var(--s2-component-m-bold-font-weight);
+  color: var(--s2-gray-900);
+}
+
+da-coworker-project .cw-ap-count {
+  color: var(--s2-gray-600);
+  font-size: var(--s2-component-s-regular-font-size);
+}
+
+da-coworker-project .cw-ap-pill {
+  padding: 2px var(--s2-spacing-100);
+  color: var(--s2-gray-700);
+  font-size: var(--s2-component-s-regular-font-size);
+  background: var(--s2-gray-100);
+  border-radius: var(--s2-corner-radius-200);
+}
+
+da-coworker-project .cw-ap-pill.is-done {
+  color: var(--s2-gray-25);
+  background: var(--s2-green-900);
+}
+
+da-coworker-project .cw-ap-artifact {
+  text-decoration: none;
+}
+
+da-coworker-project .cw-ap-note {
+  margin: var(--s2-spacing-100) 0 0;
+  font-size: var(--s2-component-s-regular-font-size);
+}
+
+da-coworker-project .cw-ap-list {
+  display: flex;
+  gap: var(--s2-spacing-100);
+  flex-wrap: wrap;
+  margin: var(--s2-spacing-100) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+da-coworker-project .cw-ap-item {
+  display: flex;
+  gap: var(--s2-spacing-100);
+  align-items: center;
+  padding: var(--s2-spacing-100) var(--s2-spacing-200);
+  background: var(--s2-gray-25);
+  border: 1px solid var(--s2-gray-200);
+  border-radius: var(--s2-corner-radius-300);
+}
+
+da-coworker-project .cw-ap-item .cw-ap-mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  font-size: 11px;
+  color: var(--s2-gray-25);
+  background: var(--s2-gray-500);
+  border-radius: 50%;
+}
+
+da-coworker-project .cw-ap-item.is-approved .cw-ap-mark { background: var(--s2-green-900); }
+
+da-coworker-project .cw-ap-name {
+  color: var(--s2-gray-900);
+  font-size: var(--s2-component-s-regular-font-size);
+  white-space: nowrap;
+}

@@ -28,8 +28,9 @@ test('stage4Readiness names both missing steps on an untouched stage', () => {
   assert.equal(reason, 'Generate the page. Run the pre-flight check.');
 });
 
-test('stage4Readiness has no approval gate: a generated + audited page is ready', () => {
-  // Approvals are ticket #46; a page with no approvals still completes Stage 4.
+test('stage4Readiness does not look at approvals: a generated + audited page is ready', () => {
+  // The approvals gate (#46) is what reaches "Approved"; this rule only asks
+  // whether the stage's work is done, so a page with no sign-offs is ready.
   const page = { ...PAGE, status: 'Draft' };
   assert.equal(stage4Readiness(page, { ...PREFLIGHT, categories: [] }).ready, true);
 });

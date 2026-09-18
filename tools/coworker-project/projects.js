@@ -188,6 +188,16 @@ export function parseProject(record) {
       startedAt: r.startedAt || '',
     }))
     .filter((r) => r.userId && r.sessionId);
+  // One row per named sign-off, keyed by stage: the approvals gate is shared by
+  // stages 4, 5, and 7 (ticket #46). An older record has no sheet -> [].
+  const approvals = (record.approvals?.data ?? [])
+    .map((r) => ({
+      stageIndex: Number(r.stageIndex) || 0,
+      name: String(r.name ?? '').trim(),
+      approved: r.approved === true || r.approved === 'true',
+      approvedAt: r.approvedAt || '',
+    }))
+    .filter((r) => r.stageIndex && r.name);
   return {
     meta,
     stages,
@@ -198,5 +208,6 @@ export function parseProject(record) {
     page,
     preflight,
     coworkerSessions,
+    approvals,
   };
 }
