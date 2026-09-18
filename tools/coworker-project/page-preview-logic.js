@@ -6,11 +6,11 @@
 
 const str = (v) => (typeof v === 'string' ? v.trim() : '');
 
-const escapeHtml = (s) => String(s)
-  .replaceAll('&', '&amp;')
-  .replaceAll('<', '&lt;')
-  .replaceAll('>', '&gt;')
-  .replaceAll('"', '&quot;');
+// Query parameter carrying the generation timestamp on the embedded preview
+// URL. The aem.page render is cached for a minute, and an iframe whose `src`
+// does not change is never reloaded, so the stamp is what makes a regenerated
+// page show up in the Layout tab instead of the previous render.
+const EMBED_STAMP_PARAM = 'cw-generated';
 
 /**
  * The breakpoints the Layout tab can preview at. `width` 0 means "as wide as
@@ -107,25 +107,26 @@ export function pageChanges(result) {
 }
 
 /**
- * The PLACEHOLDER document shown in the Layout tab's frame. The real aem.live
- * embed is a follow-up (#45), so the frame states what it will show and names
- * the target URL instead of loading it. Pure.
+ * The URL the Layout tab embeds: the page's own aem.page render, stamped with
+ * the generation time so a regenerated page reloads the frame instead of
+ * showing the cached previous render. Any fragment is dropped, and a missing or
+ * non-http(s) preview URL yields '' so the panel can show its empty state
+ * rather than a blank frame. Pure.
  * @param {string} previewUrl
+ * @param {string} [generatedAt]
  * @returns {string}
  */
-export function placeholderDoc(previewUrl) {
-  const url = escapeHtml(str(previewUrl));
-  const target = url
-    ? `<p class="url">${url}</p>`
-    : '<p class="url">No preview URL yet.</p>';
-  return '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
-    + '<style>'
-    + 'body{margin:0;display:flex;align-items:center;justify-content:center;'
-    + 'min-height:100vh;background:#f4f4f4;color:#4b4b4b;'
-    + 'font-family:system-ui,-apple-system,sans-serif;text-align:center}'
-    + 'div{padding:24px}h1{font-size:16px;margin:0 0 8px}'
-    + 'p{font-size:13px;margin:0 0 4px}.url{word-break:break-all;color:#1473e6}'
-    + '</style></head><body><div><h1>Page preview placeholder</h1>'
-    + '<p>The live aem.live embed arrives in a follow-up.</p>'
-    + `${target}</div></body></html>`;
+export function embedUrl(previewUrl, generatedAt) {
+  const s = str(previewUrl);
+  if (!/^https?:\/\//i.test(s)) return '';
+  let url;
+  try {
+    url = new URL(s);
+  } catch {
+    return '';
+  }
+  url.hash = '';
+  const stamp = str(generatedAt);
+  if (stamp) url.searchParams.set(EMBED_STAMP_PARAM, stamp);
+  return url.toString();
 }

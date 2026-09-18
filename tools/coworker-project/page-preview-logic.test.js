@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   BREAKPOINTS, frameWidth, hasGeneratedPage, pageStatusLabel, pageTitle, contentUrl,
-  pageChanges, placeholderDoc,
+  pageChanges, embedUrl,
 } from './page-preview-logic.js';
 
 test('frameWidth resizes the frame per breakpoint', () => {
@@ -89,14 +89,28 @@ test('pageChanges normalises a missing result to empty strings', () => {
   });
 });
 
-test('placeholderDoc names the preview target and escapes it', () => {
-  const doc = placeholderDoc('https://x.aem.page/drafts/a?q="1"&b=<2>');
-  assert.match(doc, /^<!DOCTYPE html>/);
-  assert.match(doc, /Page preview placeholder/);
-  assert.match(doc, /https:\/\/x\.aem\.page\/drafts\/a\?q=&quot;1&quot;&amp;b=&lt;2&gt;/);
-  assert.equal(doc.includes('<2>'), false);
+test('embedUrl embeds the page\'s own preview render', () => {
+  assert.equal(
+    embedUrl('https://main--frescopa--bpauli.aem.page/drafts/x'),
+    'https://main--frescopa--bpauli.aem.page/drafts/x',
+  );
 });
 
-test('placeholderDoc still renders without a preview URL', () => {
-  assert.match(placeholderDoc(''), /No preview URL yet\./);
+test('embedUrl stamps the generation time so a regenerated page reloads', () => {
+  const first = embedUrl('https://x.aem.page/drafts/a', '2026-01-01T00:00:00.000Z');
+  const second = embedUrl('https://x.aem.page/drafts/a', '2026-01-02T00:00:00.000Z');
+  assert.match(first, /^https:\/\/x\.aem\.page\/drafts\/a\?cw-generated=/);
+  assert.notEqual(first, second);
+});
+
+test('embedUrl drops the fragment and keeps the page query', () => {
+  assert.equal(embedUrl('https://x.aem.page/drafts/a?q=1#top'), 'https://x.aem.page/drafts/a?q=1');
+});
+
+test('embedUrl is empty when there is nothing embeddable', () => {
+  assert.equal(embedUrl(''), '');
+  assert.equal(embedUrl(null), '');
+  assert.equal(embedUrl('/drafts/a'), '');
+  assert.equal(embedUrl('javascript:alert(1)'), ''); // eslint-disable-line no-script-url
+  assert.equal(embedUrl(42), '');
 });

@@ -1035,6 +1035,10 @@ da-coworker-project .cw-pp-frame {
   border-radius: var(--s2-corner-radius-200);
 }
 
+da-coworker-project .cw-pp-embed-note {
+  margin: var(--s2-spacing-100) 0 0;
+}
+
 da-coworker-project .cw-pp-content {
   max-height: 480px;
   overflow: auto;
