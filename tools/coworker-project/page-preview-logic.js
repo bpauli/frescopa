@@ -13,23 +13,50 @@ const str = (v) => (typeof v === 'string' ? v.trim() : '');
 const EMBED_STAMP_PARAM = 'cw-generated';
 
 /**
- * The breakpoints the Layout tab can preview at. `width` 0 means "as wide as
- * the panel"; a number is a fixed device width in CSS pixels.
+ * The breakpoints the Layout tab can preview at, each a REAL viewport size: the
+ * page is rendered at that size and then scaled down to fit the panel, so
+ * Desktop shows the whole desktop layout rather than the desktop page squeezed
+ * into the panel width.
  */
 export const BREAKPOINTS = [
-  { id: 'desktop', label: 'Desktop', width: 0 },
-  { id: 'mobile', label: 'Mobile', width: 390 },
+  {
+    id: 'desktop', label: 'Desktop', width: 1280, height: 800,
+  },
+  {
+    id: 'mobile', label: 'Mobile', width: 390, height: 844,
+  },
 ];
 
+// How tall the scaled preview may get inside the panel. It caps the scale the
+// same way the panel width does, so a tall mobile viewport stays a thumbnail.
+export const PREVIEW_MAX_HEIGHT = 520;
+
+const breakpoint = (id) => BREAKPOINTS.find((b) => b.id === id) || BREAKPOINTS[0];
+
 /**
- * The CSS width for a breakpoint id, used to resize the preview frame. An
- * unknown id falls back to the full-width desktop view. Pure.
+ * The geometry of the Layout tab's preview for a breakpoint inside a panel of
+ * `availableWidth` CSS pixels: the viewport size to render the page at, the
+ * scale factor that shrinks it to fit, and the size of the box the scaled
+ * render occupies. Never scales up, and an unknown breakpoint or an unusable
+ * width falls back to the desktop view at a scale that still fits. Pure.
+ * @param {number} availableWidth
  * @param {string} id
- * @returns {string}
+ * @returns {{width: number, height: number, scale: number,
+ *   boxWidth: number, boxHeight: number}}
  */
-export function frameWidth(id) {
-  const bp = BREAKPOINTS.find((b) => b.id === id) || BREAKPOINTS[0];
-  return bp.width ? `${bp.width}px` : '100%';
+export function previewFrame(availableWidth, id) {
+  const bp = breakpoint(id);
+  const avail = Number(availableWidth);
+  const byWidth = Number.isFinite(avail) && avail > 0 ? avail / bp.width : 1;
+  const byHeight = PREVIEW_MAX_HEIGHT / bp.height;
+  const scale = Math.round(Math.min(1, byWidth, byHeight) * 1000) / 1000;
+  return {
+    width: bp.width,
+    height: bp.height,
+    scale,
+    boxWidth: Math.round(bp.width * scale),
+    boxHeight: Math.round(bp.height * scale),
+  };
 }
 
 /**

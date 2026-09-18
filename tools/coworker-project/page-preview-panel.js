@@ -10,16 +10,20 @@
 // "Regenerate" re-runs the generation.
 //
 // Two tabs: "Layout" embeds the REAL generated page (#45) - the aem.page render
-// of the record's `previewUrl` - in a frame the Desktop/Mobile breakpoint
-// selector resizes; "Content" shows the generated page markdown READ-ONLY, read
-// from the preview origin. "Open in AEM" links to the record's `editUrl`.
+// of the record's `previewUrl` - and a Desktop/Mobile breakpoint selector picks
+// the viewport it is rendered at; "Content" shows the generated page markdown
+// READ-ONLY, read from the preview origin. "Open in AEM" links to the record's
+// `editUrl`.
 //
 // The embed is a plain cross-origin iframe because the preview origin allows
-// framing (it sends neither X-Frame-Options nor a CSP `frame-ancestors`), and
-// the frame width drives the page's own media queries, so Mobile shows the
-// mobile layout. The origin sends no CORS headers, so the app cannot read the
-// render back to check it: instead a watchdog waits for the frame `load` event
-// and, if it never arrives, offers the preview in a new tab.
+// framing (it sends neither X-Frame-Options nor a CSP `frame-ancestors`). The
+// frame is sized to the breakpoint's REAL viewport (1280px desktop, 390px
+// mobile) and then CSS-scaled down to the measured panel width, so Desktop
+// shows the WHOLE desktop layout as a thumbnail instead of the desktop page
+// squeezed into a narrow panel. The scaled render is a picture of the page, so
+// it takes no pointer events. The origin sends no CORS headers, so the app
+// cannot read the render back to check it: instead a watchdog waits for the
+// frame `load` event and, if it never arrives, offers the preview in a new tab.
 //
 // The panel never blocks: `generatePage` never throws, a failed run keeps the
 // previous record and degrades to a soft error, a failed content read only
@@ -30,7 +34,7 @@ import { LitElement, html } from 'da-lit';
 import { generatePage } from './page-generation.js';
 import { savePage } from './stage-state.js';
 import {
-  BREAKPOINTS, frameWidth, hasGeneratedPage, pageStatusLabel, pageTitle, contentUrl,
+  BREAKPOINTS, previewFrame, hasGeneratedPage, pageStatusLabel, pageTitle, contentUrl,
   pageChanges, embedUrl,
 } from './page-preview-logic.js';
 
@@ -52,6 +56,7 @@ class DaPagePreviewPanel extends LitElement {
     _loadingContent: { state: true },
     _generating: { state: true },
     _embedState: { state: true },
+    _frameArea: { state: true },
     _error: { state: true },
   };
 
@@ -72,6 +77,8 @@ class DaPagePreviewPanel extends LitElement {
     this._embedState = 'idle';
     this._embedSrc = '';
     this._embedTimer = 0;
+    this._frameArea = 0;
+    this._frameObserver = null;
     this._error = null;
   }
 
@@ -88,11 +95,31 @@ class DaPagePreviewPanel extends LitElement {
   updated() {
     if (this._tab !== 'layout') return;
     this.watchEmbed(embedUrl(this._page?.previewUrl, this._page?.generatedAt));
+    this.measureFrameArea();
   }
 
   disconnectedCallback() {
     clearTimeout(this._embedTimer);
+    this._frameObserver?.disconnect();
+    this._frameObserver = null;
     super.disconnectedCallback();
+  }
+
+  // Measure the width the scaled preview may occupy - the frame wrapper's
+  // content box - and keep watching it, because the panel width follows the
+  // shell layout and the browser window. The scale is derived from this width,
+  // so without it the preview could only guess how much it has to shrink.
+  measureFrameArea() {
+    const wrap = this.querySelector('.cw-pp-frame-wrap');
+    if (!wrap) return;
+    if (!this._frameObserver && typeof ResizeObserver === 'function') {
+      this._frameObserver = new ResizeObserver(() => this.measureFrameArea());
+      this._frameObserver.observe(wrap);
+    }
+    const style = getComputedStyle(wrap);
+    const pad = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
+    const width = Math.max(0, Math.round(wrap.clientWidth - pad));
+    if (width !== this._frameArea) this._frameArea = width;
   }
 
   // Start (or restart, after a Regenerate changed the URL) the watchdog for the
@@ -204,17 +231,24 @@ class DaPagePreviewPanel extends LitElement {
   }
 
   renderLayout() {
-    const width = frameWidth(this._breakpoint);
     const src = embedUrl(this._page?.previewUrl, this._page?.generatedAt);
     if (!src) {
       return html`<div class="cw-pp-frame-wrap">
         <p class="cw-muted">No page preview to show yet.</p></div>`;
     }
+    const box = previewFrame(this._frameArea, this._breakpoint);
+    // The box width is capped at 100% of the panel: a fixed px width would widen
+    // the Stage 4 grid track that the measurement reads, and the scale would
+    // chase its own measurement instead of settling.
     return html`
       <div class="cw-pp-frame-wrap">
-        <iframe class="cw-pp-frame" title="Preview of the generated page"
-          style="width:${width};" src=${src}
-          @load=${() => { this._embedState = 'ready'; clearTimeout(this._embedTimer); }}></iframe>
+        <div class="cw-pp-frame-box"
+          style="width:min(100%,${box.boxWidth}px);height:${box.boxHeight}px;">
+          <iframe class="cw-pp-frame" title="Preview of the generated page"
+            style="width:${box.width}px;height:${box.height}px;transform:scale(${box.scale});"
+            src=${src}
+            @load=${() => { this._embedState = 'ready'; clearTimeout(this._embedTimer); }}></iframe>
+        </div>
       </div>
       ${this._embedState === 'slow' ? html`<p class="cw-muted cw-pp-embed-note">
         The preview is not showing here. <a href=${this._page?.previewUrl}

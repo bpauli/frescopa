@@ -2,24 +2,52 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  BREAKPOINTS, frameWidth, hasGeneratedPage, pageStatusLabel, pageTitle, contentUrl,
-  pageChanges, embedUrl,
+  BREAKPOINTS, previewFrame, PREVIEW_MAX_HEIGHT, hasGeneratedPage, pageStatusLabel,
+  pageTitle, contentUrl, pageChanges, embedUrl,
 } from './page-preview-logic.js';
 
-test('frameWidth resizes the frame per breakpoint', () => {
-  assert.equal(frameWidth('desktop'), '100%');
-  assert.equal(frameWidth('mobile'), '390px');
+test('previewFrame renders the desktop viewport scaled down to fit the panel', () => {
+  const box = previewFrame(640, 'desktop');
+  assert.equal(box.width, 1280);
+  assert.equal(box.height, 800);
+  assert.equal(box.scale, 0.5);
+  assert.equal(box.boxWidth, 640);
+  assert.equal(box.boxHeight, 400);
 });
 
-test('frameWidth falls back to the desktop view for an unknown breakpoint', () => {
-  assert.equal(frameWidth('watch'), '100%');
-  assert.equal(frameWidth(''), '100%');
-  assert.equal(frameWidth(undefined), '100%');
+test('previewFrame never scales a preview up and keeps it inside the panel', () => {
+  ['desktop', 'mobile'].forEach((id) => {
+    const box = previewFrame(4000, id);
+    assert.ok(box.scale <= 1, `${id} scale ${box.scale}`);
+    assert.ok(box.boxHeight <= PREVIEW_MAX_HEIGHT, `${id} height ${box.boxHeight}`);
+  });
 });
 
-test('BREAKPOINTS offers Desktop and Mobile, desktop first', () => {
+test('previewFrame renders mobile at the device viewport, scaled the same way', () => {
+  const box = previewFrame(640, 'mobile');
+  assert.equal(box.width, 390);
+  assert.equal(box.height, 844);
+  assert.ok(box.boxWidth < 390);
+  assert.equal(box.boxHeight, PREVIEW_MAX_HEIGHT);
+});
+
+test('previewFrame falls back to a fitting desktop view without a usable width', () => {
+  [0, -10, undefined, 'wide'].forEach((width) => {
+    const box = previewFrame(width, 'desktop');
+    assert.equal(box.width, 1280);
+    assert.ok(box.scale > 0 && box.scale <= 1);
+    assert.ok(box.boxHeight <= PREVIEW_MAX_HEIGHT);
+  });
+});
+
+test('previewFrame falls back to the desktop breakpoint for an unknown id', () => {
+  assert.deepEqual(previewFrame(640, 'watch'), previewFrame(640, 'desktop'));
+});
+
+test('BREAKPOINTS offers Desktop and Mobile as real viewports, desktop first', () => {
   assert.deepEqual(BREAKPOINTS.map((b) => b.id), ['desktop', 'mobile']);
   assert.deepEqual(BREAKPOINTS.map((b) => b.label), ['Desktop', 'Mobile']);
+  assert.ok(BREAKPOINTS.every((b) => b.width > 0 && b.height > 0));
 });
 
 test('hasGeneratedPage is the preview URL, not the status', () => {
