@@ -13,6 +13,11 @@ the file (`coworker-project/coworker-project`), not just the folder.
   `https://da.live/app/bpauli/frescopa/tools/coworker-project/coworker-project?ref=local`
 - Branch: append `?ref=<branch>`; on `main`, omit `ref`.
 
+In a git worktree `aem up` refuses to start ("git submodules are not supported"),
+because `.git` is a file there. Any static server on port 3000 works instead,
+e.g. `python3 -m http.server 3000`: the app is plain ES modules, and DA loads it
+from `http://localhost:3000/tools/coworker-project/coworker-project.html`.
+
 To show the app as a card in the DA UI, add a row to the `apps` config sheet at
 `https://da.live/config#/bpauli/frescopa/` (path
 `/tools/coworker-project/coworker-project`).

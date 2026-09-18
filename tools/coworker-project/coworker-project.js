@@ -8,6 +8,7 @@ import { saveStageState, recomputeGating, saveCoworkerSession } from './stage-st
 import { primaryOf } from './keyword-logic.js';
 import { getCoworker, coworkerUserId } from './coworker.js';
 import { suggestCreativeDirection } from './creative-direction.js';
+import stage4Readiness from './stage4-logic.js';
 import './keyword-panel.js';
 import './cannibalization-panel.js';
 import './base-template-panel.js';
@@ -17,6 +18,8 @@ import './chat-rail.js';
 import './brief-panel.js';
 import './destination-url-panel.js';
 import './brief-links-panel.js';
+import './page-preview-panel.js';
+import './preflight-panel.js';
 
 // Coworker Projects app. Round one routes between three views:
 //   list    - the projects landing (the front door)
@@ -93,6 +96,9 @@ function stage3Readiness(brief) {
   if (missing.length) return { ready: false, reason: `Add ${missing.join(' and ')}.` };
   return { ready: true, reason: '' };
 }
+
+// Stage 4's rule is `stage4Readiness` in stage4-logic.js - it lives in its own
+// module so it can be unit tested (this one boots the app on import). (#44)
 
 // Where to land when a project opens: the furthest unlocked stage.
 function defaultActiveStage(stages) {
@@ -253,6 +259,7 @@ class DaCoworkerProject extends LitElement {
     this.autoStartStage1();
     this.autoStartStage2();
     this.autoStartStage3();
+    this.autoStartStage4();
     this.maybeLoadCreativeSuggestions();
   }
 
@@ -275,6 +282,14 @@ class DaCoworkerProject extends LitElement {
   // Stage 3 becomes In Progress the first time it is opened (ticket #36).
   autoStartStage3() {
     const s = this._project?.stages.find((st) => stageKey(st.stage) === 'brief-generation');
+    if (s && s.stageIndex === this._activeStage && s.status === 'Not Started' && !this._savingStage) {
+      this.changeStage(s.stageIndex, 'In Progress');
+    }
+  }
+
+  // Stage 4 becomes In Progress the first time it is opened (ticket #44).
+  autoStartStage4() {
+    const s = this._project?.stages.find((st) => stageKey(st.stage) === 'page-generation');
     if (s && s.stageIndex === this._activeStage && s.status === 'Not Started' && !this._savingStage) {
       this.changeStage(s.stageIndex, 'In Progress');
     }
@@ -614,6 +629,31 @@ class DaCoworkerProject extends LitElement {
       </div>`;
   }
 
+  // Stage 4's completion control: Complete only when the page is generated and
+  // the pre-flight check has run; Reopen re-locks Stage 5. No approval gate -
+  // approvals are ticket #46. (ticket #44)
+  renderStage4Control(stage) {
+    const saving = this._savingStage
+      ? html`<span class="cw-saving"><span class="nx-loading-spinner"></span>Saving...</span>` : '';
+    if (stage.status === 'Complete' || stage.status === 'Approved') {
+      return html`
+        <div class="cw-controls">
+          <span class="cw-stage-done">&#10003; Stage 4 complete - Stage 5 is unlocked.</span>
+          <button class="nx-action-btn" ?disabled=${this._savingStage}
+            @click=${() => this.changeStage(stage.stageIndex, 'In Progress')}>Reopen</button>
+          ${saving}
+        </div>`;
+    }
+    const { ready, reason } = stage4Readiness(this._project.page, this._project.preflight);
+    return html`
+      <div class="cw-controls">
+        <button class="nx-btn-accent" ?disabled=${!ready || this._savingStage}
+          @click=${() => this.changeStage(stage.stageIndex, 'Complete')}>Complete Stage 4</button>
+        ${!ready ? html`<span class="cw-muted">${reason}</span>` : ''}
+        ${saving}
+      </div>`;
+  }
+
   renderStagePanel(stages) {
     const stage = stages.find((s) => s.stageIndex === this._activeStage);
     if (!stage) return '';
@@ -722,6 +762,31 @@ class DaCoworkerProject extends LitElement {
           </div>
         </div>
         <div class="cw-stage1-foot">${this.renderStage3Control(stage)}${err}</div>`;
+    }
+
+    if (stageKey(stage.stage) === 'page-generation') {
+      const brief = this._project.brief ?? {};
+      const cd = this._project.creativeDirection ?? {};
+      const page = this._project.page ?? null;
+      const preflight = this._project.preflight ?? null;
+      const daFetch = this.actions?.daFetch;
+      return html`
+        ${title}
+        <div class="cw-cd-row cw-pg-row">
+          <div class="cw-card">
+            <da-page-preview-panel
+              .context=${this.context} .daFetch=${daFetch} .slug=${this._selectedSlug}
+              .brief=${brief} .creativeDirection=${cd} .page=${page}
+              @page-changed=${(e) => { this._project = { ...this._project, page: e.detail.page }; }}></da-page-preview-panel>
+          </div>
+          <div class="cw-card">
+            <da-preflight-panel
+              .context=${this.context} .daFetch=${daFetch} .slug=${this._selectedSlug}
+              .brief=${brief} .page=${page} .preflight=${preflight}
+              @preflight-changed=${(e) => { this._project = { ...this._project, preflight: e.detail.preflight }; }}></da-preflight-panel>
+          </div>
+        </div>
+        <div class="cw-stage1-foot">${this.renderStage4Control(stage)}${err}</div>`;
     }
 
     return html`

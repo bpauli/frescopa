@@ -514,6 +514,14 @@ da-coworker-project .cw-cd-row {
   }
 }
 
+/* --- Stage 4: page-generation layout (preview left/center, pre-flight right) --- */
+@media (width >= 900px) {
+  da-coworker-project .cw-pg-row {
+    grid-template-columns: 2fr 1fr;
+    align-items: start;
+  }
+}
+
 /* --- cannibalization panel --- */
 da-coworker-project .cw-cn-header {
   display: flex;
