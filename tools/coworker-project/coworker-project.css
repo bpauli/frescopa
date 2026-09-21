@@ -3,8 +3,22 @@
  * Tokens (--s2-*) and .nx-btn-* classes come from the hosted nx2 stylesheets
  * linked in coworker-project.html. color-scheme sets which value every
  * light-dark() token resolves to - no hardcoded hex.
- * All selectors are scoped under the da-coworker-project element.
+ * All selectors are scoped under the da-coworker-project element, except
+ * .cw-boot: that paragraph is the pre-app boot message, so it has to stand in
+ * <body> before the app element exists.
  */
+
+/* Boot / boot-failure message. Replaced by the app the moment it boots. It
+   carries its own color-scheme because it stands outside the app element, so
+   the light-dark() tokens still resolve the way the app resolves them. */
+.cw-boot {
+  color-scheme: light;
+  font-family: var(--s2-font-family);
+  color: var(--s2-gray-700);
+  padding: var(--s2-spacing-500);
+  margin: 0;
+  max-width: 40rem;
+}
 
 da-coworker-project {
   color-scheme: light;

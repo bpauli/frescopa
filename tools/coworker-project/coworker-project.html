@@ -15,11 +15,31 @@
       { "imports": { "da-lit": "https://da.live/deps/lit/dist/index.js" } }
     </script>
 
+    <!-- Boot failure surface. A module graph that fails to load leaves <body>
+         exactly as it ships below, so the app never gets to report anything:
+         one 404'd import kills the whole graph and coworker-project.js never
+         evaluates. This has to be inline and ahead of the module scripts -
+         a module cannot report its own failure to load - and it has to listen
+         in the capture phase, because resource errors do not bubble. -->
+    <script>
+      window.addEventListener('error', (event) => {
+        // Resource failure: plain Event, the <script> element is the target.
+        // Uncaught throw: ErrorEvent, carrying filename/message instead.
+        const detail = event.target?.src || event.filename || event.message;
+        const boot = document.querySelector('.cw-boot');
+        if (!boot || !detail) return;
+        boot.textContent = `Coworker Projects did not load: ${detail} - see the browser console and Network tab for the failing request.`;
+      }, true);
+    </script>
+
     <!-- DA App SDK -->
     <script src="https://da.live/nx/utils/sdk.js" type="module"></script>
 
     <!-- Your app logic -->
     <script src="/tools/coworker-project/coworker-project.js" type="module"></script>
   </head>
-  <body></body>
+  <body>
+    <!-- Replaced by the app once it boots; left standing, it names the fault. -->
+    <p class="cw-boot">Loading Coworker Projects...</p>
+  </body>
 </html>
