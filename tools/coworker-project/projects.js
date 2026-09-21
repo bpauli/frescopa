@@ -77,15 +77,18 @@ const cdSource = (v) => {
  * Parse a project record into a view model: the meta row, stages ordered by
  * stageIndex (each with its ordered steps), the Stage 1 keyword list and
  * cannibalization result, the Stage 2 creative-direction selection, the
- * Stage 3 brief, the Stage 4 generated page and pre-flight result, and the
- * per-producer Coworker session rows.
+ * Stage 3 brief, the Stage 4 generated page and pre-flight result, the
+ * per-producer Coworker session rows, the per-stage approvals, and the Stage 5
+ * asset rows (one per page image slot).
  * @returns {{meta: object, stages: Array<{stage, stageIndex, status, steps}>,
  *   keywords: Array<{text, role}>, cannibalization: object,
  *   creativeDirection: {baseTemplate, visualStyle, colorPalette},
  *   brief: {title, body, destinationUrl, links: Array},
  *   page: {generatedAt, path, previewUrl, editUrl, status},
  *   preflight: {ranAt, categories: Array<{name, passed, total, score, source}>},
- *   coworkerSessions: Array<{userId, sessionId, startedAt}>} | null}
+ *   coworkerSessions: Array<{userId, sessionId, startedAt}>,
+ *   assets: Array<{id, slot, alt, prompt, status, sourceUrl, mediaUrl, model,
+ *   aspect, visualStyle, palette, description, createdAt}>} | null}
  */
 export function parseProject(record) {
   if (!record || typeof record !== 'object') return null;
@@ -198,6 +201,27 @@ export function parseProject(record) {
       approvedAt: r.approvedAt || '',
     }))
     .filter((r) => r.stageIndex && r.name);
+  // One row per page image slot, keyed by `slot` (ticket #58): `sourceUrl` is
+  // where the asset came from (a Firefly presigned URL that expires after an
+  // hour), `mediaUrl` the permanent DA-hosted copy the page doc references
+  // (populated by the page-swap ticket #60). An older record has no sheet -> [].
+  const assets = (record.assets?.data ?? [])
+    .map((r) => ({
+      id: String(r.id ?? ''),
+      slot: Number(r.slot),
+      alt: r.alt || '',
+      prompt: r.prompt || '',
+      status: r.status || '',
+      sourceUrl: r.sourceUrl || '',
+      mediaUrl: r.mediaUrl || '',
+      model: r.model || '',
+      aspect: r.aspect || '',
+      visualStyle: r.visualStyle || '',
+      palette: r.palette || '',
+      description: r.description || '',
+      createdAt: r.createdAt || '',
+    }))
+    .filter((r) => Number.isFinite(r.slot));
   return {
     meta,
     stages,
@@ -209,5 +233,6 @@ export function parseProject(record) {
     preflight,
     coworkerSessions,
     approvals,
+    assets,
   };
 }
