@@ -53,11 +53,12 @@ class DaChatRail extends LitElement {
     this._chat?.setContext(composeContext(this.stage, this.project));
   }
 
-  // "Add to chat" (from the brief panel, #36): prefill the input with the given
-  // text framed as a revision request, so the producer can send or edit it. The
-  // brief is also in the stage context, so the assistant sees it either way.
-  prefill(text) {
-    this._input = `Here is my page brief - help me revise it:\n\n${text}`;
+  // "Add to chat" (from the brief panel, #36; the Stage 5 asset detail view,
+  // #62): prefill the input with the given text under a lead that says what is
+  // being handed over, so the producer can send or edit it. The panel that owns
+  // the artifact owns its lead; the brief's is the default.
+  prefill(text, lead = 'Here is my page brief - help me revise it:') {
+    this._input = `${lead}\n\n${text}`;
     const box = this.querySelector('.cw-chat-input');
     if (box) box.focus();
   }

@@ -1440,3 +1440,95 @@ da-coworker-project .cw-as-note {
 da-coworker-project .cw-as-panel-note {
   margin: var(--s2-spacing-200) 0 0;
 }
+
+/* --- Stage 5: asset detail view (#62) --- */
+da-asset-detail .cw-ad-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  background: rgb(0 0 0 / 40%);
+}
+
+da-asset-detail .cw-ad-card {
+  position: fixed;
+  z-index: 11;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(880px, calc(100vw - var(--s2-spacing-600)));
+  max-height: calc(100vh - var(--s2-spacing-600));
+  overflow: auto;
+  padding: var(--s2-spacing-400);
+  background: var(--s2-gray-25);
+  border: 1px solid var(--s2-gray-200);
+  border-radius: var(--s2-corner-radius-500);
+}
+
+da-asset-detail .cw-ad-body {
+  display: grid;
+  gap: var(--s2-spacing-400);
+  margin-top: var(--s2-spacing-300);
+}
+
+@media (width >= 900px) {
+  da-asset-detail .cw-ad-body {
+    grid-template-columns: 3fr 2fr;
+    align-items: start;
+  }
+}
+
+da-asset-detail .cw-ad-figure {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+  padding: var(--s2-spacing-200);
+  background: var(--s2-gray-100);
+  border-radius: var(--s2-corner-radius-300);
+}
+
+da-asset-detail .cw-ad-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--s2-corner-radius-200);
+}
+
+da-asset-detail .cw-ad-fields {
+  display: grid;
+  gap: var(--s2-spacing-200);
+  margin: 0;
+}
+
+da-asset-detail .cw-ad-field {
+  display: grid;
+  gap: var(--s2-spacing-50);
+}
+
+da-asset-detail .cw-ad-label {
+  color: var(--s2-gray-600);
+  font-size: var(--s2-component-s-regular-font-size);
+}
+
+da-asset-detail .cw-ad-value {
+  margin: 0;
+  color: var(--s2-gray-900);
+  font-size: var(--s2-component-s-regular-font-size);
+  overflow-wrap: anywhere;
+}
+
+da-asset-detail .cw-ad-value.is-missing {
+  color: var(--s2-gray-600);
+  font-style: italic;
+}
+
+da-asset-detail .cw-ad-note {
+  display: block;
+}
+
+da-asset-detail .cw-ad-actions {
+  display: flex;
+  gap: var(--s2-spacing-100);
+  flex-wrap: wrap;
+  margin-top: var(--s2-spacing-400);
+}
