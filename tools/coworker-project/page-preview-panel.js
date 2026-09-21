@@ -29,13 +29,25 @@
 // previous record and degrades to a soft error, a failed content read only
 // costs the Content tab, and a preview that will not load degrades to that
 // note - exactly how brief-panel.js treats a failed brief.
+//
+// VIEWER MODE (ticket #63): Stage 5's Assets Rendering panel
+// (assets-rendering-panel.js) composes THIS component with `viewer` set rather
+// than building a second preview. The viewer keeps the render - the scaled
+// iframe, the breakpoint selector, Open in AEM, the Draft status pill - and
+// drops the Stage 4 authoring machinery: no auto-generate, no Regenerate (a
+// page re-roll would wipe the assets Stage 5 swapped in), no Content tab, and
+// no Locale selector (that arrives with Stage 6 Localization). The header
+// action is Refresh, which re-loads the embed after the Generated Assets
+// panel (#61) swaps the real images into the page doc and re-previews it
+// (#60); the same reload is exposed as the public `refresh()` method so the
+// shell (#64) can drive it from the grid's `assets-changed` event.
 
 import { LitElement, html } from 'da-lit';
 import { generatePage } from './page-generation.js';
 import { savePage } from './stage-state.js';
 import {
   BREAKPOINTS, previewFrame, hasGeneratedPage, pageStatusLabel, pageTitle, contentUrl,
-  pageChanges, embedUrl,
+  pageChanges, embedUrl, refreshStamp,
 } from './page-preview-logic.js';
 
 // How long the embedded preview may take before the panel offers the fallback.
@@ -49,6 +61,8 @@ class DaPagePreviewPanel extends LitElement {
     brief: { attribute: false },
     creativeDirection: { attribute: false },
     page: { attribute: false },
+    heading: { attribute: false },
+    viewer: { attribute: false },
     _page: { state: true },
     _tab: { state: true },
     _breakpoint: { state: true },
@@ -57,6 +71,7 @@ class DaPagePreviewPanel extends LitElement {
     _generating: { state: true },
     _embedState: { state: true },
     _frameArea: { state: true },
+    _refreshTick: { state: true },
     _error: { state: true },
   };
 
@@ -68,6 +83,8 @@ class DaPagePreviewPanel extends LitElement {
     this.brief = null;
     this.creativeDirection = null;
     this.page = null;
+    this.heading = '';
+    this.viewer = false;
     this._page = null;
     this._tab = 'layout';
     this._breakpoint = 'desktop';
@@ -79,6 +96,7 @@ class DaPagePreviewPanel extends LitElement {
     this._embedTimer = 0;
     this._frameArea = 0;
     this._frameObserver = null;
+    this._refreshTick = 0;
     this._error = null;
   }
 
@@ -88,13 +106,14 @@ class DaPagePreviewPanel extends LitElement {
 
   firstUpdated() {
     this._page = this.page || null;
-    // Auto-generate only when there is no page yet; an existing page opens as-is.
-    if (!hasGeneratedPage(this._page)) this.generate();
+    // Auto-generate only when there is no page yet; an existing page opens
+    // as-is. A viewer never generates: it renders the page Stage 4 made.
+    if (!this.viewer && !hasGeneratedPage(this._page)) this.generate();
   }
 
   updated() {
     if (this._tab !== 'layout') return;
-    this.watchEmbed(embedUrl(this._page?.previewUrl, this._page?.generatedAt));
+    this.watchEmbed(this.embedSrc());
     this.measureFrameArea();
   }
 
@@ -122,10 +141,30 @@ class DaPagePreviewPanel extends LitElement {
     if (width !== this._frameArea) this._frameArea = width;
   }
 
-  // Start (or restart, after a Regenerate changed the URL) the watchdog for the
-  // embedded preview. The frame itself stays put either way: the watchdog only
-  // decides whether the panel offers the "open in a new tab" fallback, since a
-  // cross-origin frame cannot be inspected from here.
+  // The URL the Layout tab embeds right now: the page's preview render stamped
+  // with the generation time AND the refresh tick, so a Regenerate and a
+  // Refresh each produce a URL the frame has not loaded yet - and a changed
+  // `src` is the only thing that makes an iframe reload.
+  embedSrc() {
+    const stamp = refreshStamp(this._page?.generatedAt, this._refreshTick);
+    return embedUrl(this._page?.previewUrl, stamp);
+  }
+
+  // Re-load the embedded preview without touching the page record. The Stage 5
+  // Assets Rendering view drives this after an asset swap (#60): the swap
+  // already re-previewed the page, so a fresh embed URL is all it takes to
+  // show the real images. Public on purpose: the shell (#64) can call it when
+  // the Generated Assets grid (#61) emits `assets-changed`. A no-op while
+  // there is no generated page.
+  refresh() {
+    if (!hasGeneratedPage(this._page)) return;
+    this._refreshTick += 1;
+  }
+
+  // Start (or restart, after a Regenerate or Refresh changed the URL) the
+  // watchdog for the embedded preview. The frame itself stays put either way:
+  // the watchdog only decides whether the panel offers the "open in a new tab"
+  // fallback, since a cross-origin frame cannot be inspected from here.
   watchEmbed(src) {
     if (src === this._embedSrc) return;
     this._embedSrc = src;
@@ -214,12 +253,13 @@ class DaPagePreviewPanel extends LitElement {
   renderControls() {
     return html`
       <div class="cw-pp-controls">
+        ${this.viewer ? '' : html`
         <label class="cw-pp-control">
           <span class="cw-muted">Locale</span>
           <select disabled title="Localization arrives in Stage 6">
             <option>English (United States)</option>
           </select>
-        </label>
+        </label>`}
         <label class="cw-pp-control">
           <span class="cw-muted">Breakpoint</span>
           <select .value=${this._breakpoint}
@@ -231,7 +271,7 @@ class DaPagePreviewPanel extends LitElement {
   }
 
   renderLayout() {
-    const src = embedUrl(this._page?.previewUrl, this._page?.generatedAt);
+    const src = this.embedSrc();
     if (!src) {
       return html`<div class="cw-pp-frame-wrap">
         <p class="cw-muted">No page preview to show yet.</p></div>`;
@@ -264,8 +304,15 @@ class DaPagePreviewPanel extends LitElement {
   renderBody() {
     if (!hasGeneratedPage(this._page)) {
       if (this._generating) return '';
+      if (this.viewer) {
+        return html`<p class="cw-muted">No generated page to render yet.</p>`;
+      }
       return html`<p class="cw-muted">
         No page yet. Use Regenerate once the brief and destination URL are set.</p>`;
+    }
+    // A viewer has one job: the rendered page. No tabs, no Content view.
+    if (this.viewer) {
+      return html`${this.renderControls()}${this.renderLayout()}`;
     }
     return html`
       ${this.renderTabs()}
@@ -275,14 +322,18 @@ class DaPagePreviewPanel extends LitElement {
 
   render() {
     const editUrl = this._page?.editUrl || '';
+    const canRefresh = hasGeneratedPage(this._page);
     return html`
       <div class="cw-cn-header">
-        <h3 class="cw-kw-title">Page Preview</h3>
+        <h3 class="cw-kw-title">${this.heading || 'Page Preview'}</h3>
         <div class="cw-pp-actions">
           ${editUrl ? html`<a class="nx-action-btn nx-btn-sm" href=${editUrl}
             target="_blank" rel="noopener">Open in AEM</a>` : ''}
-          <button class="nx-action-btn nx-btn-sm" ?disabled=${this._generating}
-            @click=${() => this.generate()}>Regenerate</button>
+          ${this.viewer
+    ? html`<button class="nx-action-btn nx-btn-sm" ?disabled=${!canRefresh}
+            @click=${() => this.refresh()}>Refresh</button>`
+    : html`<button class="nx-action-btn nx-btn-sm" ?disabled=${this._generating}
+            @click=${() => this.generate()}>Regenerate</button>`}
         </div>
       </div>
       <div class="cw-pp-title-row">

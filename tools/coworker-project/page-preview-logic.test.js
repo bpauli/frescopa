@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   BREAKPOINTS, previewFrame, PREVIEW_MAX_HEIGHT, hasGeneratedPage, pageStatusLabel,
-  pageTitle, contentUrl, pageChanges, embedUrl,
+  pageTitle, contentUrl, pageChanges, embedUrl, refreshStamp,
 } from './page-preview-logic.js';
 
 test('previewFrame renders the desktop viewport scaled down to fit the panel', () => {
@@ -141,4 +141,36 @@ test('embedUrl is empty when there is nothing embeddable', () => {
   assert.equal(embedUrl('/drafts/a'), '');
   assert.equal(embedUrl('javascript:alert(1)'), ''); // eslint-disable-line no-script-url
   assert.equal(embedUrl(42), '');
+});
+
+test('refreshStamp is the bare generation time before any refresh', () => {
+  const base = '2026-01-01T00:00:00.000Z';
+  assert.equal(refreshStamp(base, 0), base);
+  assert.equal(refreshStamp(base), base);
+  assert.equal(refreshStamp(base, -2), base);
+  assert.equal(refreshStamp(base, 'later'), base);
+  assert.equal(refreshStamp('', 0), '');
+});
+
+test('refreshStamp changes deterministically with every refresh tick', () => {
+  const base = '2026-01-01T00:00:00.000Z';
+  const first = refreshStamp(base, 1);
+  const second = refreshStamp(base, 2);
+  assert.notEqual(first, base);
+  assert.notEqual(first, second);
+  assert.equal(refreshStamp(base, 1), first);
+});
+
+test('refreshStamp still stamps a page that has no generation time', () => {
+  assert.equal(refreshStamp('', 1), refreshStamp(null, 1));
+  assert.notEqual(refreshStamp('', 1), '');
+});
+
+test('embedUrl reloads the frame for a refreshed stamp', () => {
+  const page = 'https://x.aem.page/drafts/a';
+  const before = embedUrl(page, refreshStamp('2026-01-01T00:00:00.000Z', 0));
+  const after = embedUrl(page, refreshStamp('2026-01-01T00:00:00.000Z', 1));
+  assert.notEqual(before, after);
+  assert.match(before, /^https:\/\/x\.aem\.page\/drafts\/a\?cw-generated=/);
+  assert.match(after, /^https:\/\/x\.aem\.page\/drafts\/a\?cw-generated=/);
 });
