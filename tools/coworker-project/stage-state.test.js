@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { parseProject } from './projects.js';
 import {
   serializeRecord, savePage, savePreflight, saveBrief, saveCoworkerSession, saveKeywords,
+  saveApprovals, saveStageState,
 } from './stage-state.js';
 
 // A fake daFetch backed by a single in-memory record: a GET (no options) reads
@@ -138,4 +139,90 @@ test('another stage write preserves the coworkerSessions sheet', async () => {
   await saveKeywords(ctx, daFetch, 'x', [{ text: 'k', role: 'primary' }]);
 
   assert.deepEqual(parseProject(writes[0]).coworkerSessions, rows);
+});
+
+test('saveApprovals stores one stage\'s sign-offs and keeps the rest of the record', async () => {
+  const record = serializeRecord({ slug: 'x' }, [], [], null, null, null, page, preflight);
+  const { daFetch, writes } = fakeDa(record);
+
+  const saved = await saveApprovals(ctx, daFetch, 'x', {
+    stageIndex: 4,
+    approvals: [
+      { name: 'Content', approved: true, approvedAt: '2026-01-05T00:00:00Z' },
+      { name: 'Compliance', approved: false, approvedAt: '' },
+    ],
+  });
+  assert.equal(saved.length, 2);
+
+  const written = parseProject(writes[0]);
+  assert.deepEqual(written.approvals, [
+    {
+      stageIndex: 4, name: 'Content', approved: true, approvedAt: '2026-01-05T00:00:00Z',
+    },
+    {
+      stageIndex: 4, name: 'Compliance', approved: false, approvedAt: '',
+    },
+  ]);
+  assert.deepEqual(written.page, page);
+  assert.deepEqual(written.preflight, preflight);
+});
+
+test('saveApprovals replaces only the named stage - other stages keep their sign-offs', async () => {
+  const rows = [
+    {
+      stageIndex: 4, name: 'Content', approved: true, approvedAt: 't1',
+    },
+    {
+      stageIndex: 5, name: 'Compliance', approved: true, approvedAt: 't2',
+    },
+  ];
+  const record = serializeRecord({ slug: 'x' }, [], [], null, null, null, null, null, [], rows);
+  const { daFetch, writes } = fakeDa(record);
+
+  await saveApprovals(ctx, daFetch, 'x', {
+    stageIndex: 4,
+    approvals: [{ name: 'Content', approved: false, approvedAt: '' }],
+  });
+
+  const written = parseProject(writes[0]);
+  assert.deepEqual(written.approvals, [
+    {
+      stageIndex: 5, name: 'Compliance', approved: true, approvedAt: 't2',
+    },
+    {
+      stageIndex: 4, name: 'Content', approved: false, approvedAt: '',
+    },
+  ]);
+});
+
+test('another stage write preserves the approvals sheet', async () => {
+  const rows = [{
+    stageIndex: 4, name: 'Content', approved: true, approvedAt: 't1',
+  }];
+  const record = serializeRecord({ slug: 'x' }, [], [], null, null, null, null, null, [], rows);
+  const { daFetch, writes } = fakeDa(record);
+
+  await savePreflight(ctx, daFetch, 'x', preflight);
+
+  assert.deepEqual(parseProject(writes[0]).approvals, rows);
+});
+
+test('saveStageState preserves the approvals sheet across a status write', async () => {
+  const stages = [
+    {
+      stage: 'Page Generation', stageIndex: 4, status: 'In Progress', steps: [],
+    },
+  ];
+  const rows = [{
+    stageIndex: 4, name: 'Content', approved: true, approvedAt: 't1',
+  }];
+  const record = serializeRecord({ slug: 'x' }, stages, [], null, null, null, null, null, [], rows);
+  const { daFetch, writes } = fakeDa(record);
+  const project = parseProject(record);
+
+  await saveStageState(ctx, daFetch, 'x', project, { stageIndex: 4, status: 'Approved' });
+
+  const written = parseProject(writes[0]);
+  assert.equal(written.stages[0].status, 'Approved');
+  assert.deepEqual(written.approvals, rows);
 });

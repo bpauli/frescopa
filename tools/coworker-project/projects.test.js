@@ -69,3 +69,38 @@ test('parseProject drops coworker-session rows missing a user or an id', () => {
     { userId: 'b@x.com', sessionId: '7302', startedAt: '' },
   ]);
 });
+
+test('parseProject reads the approvals sheet (row per sign-off, keyed by stage)', () => {
+  const approvals = [
+    {
+      stageIndex: 4, name: 'Content', approved: true, approvedAt: '2026-01-05T00:00:00Z',
+    },
+    {
+      stageIndex: 5, name: 'Compliance', approved: false, approvedAt: '',
+    },
+  ];
+  const record = serializeRecord({ slug: 'x' }, [], [], null, null, null, null, null, [], approvals);
+  assert.deepEqual(parseProject(record).approvals, approvals);
+});
+
+test('parseProject yields no approvals for an older record without the sheet', () => {
+  // A v7 record: no `approvals` sheet -> [] -> every sign-off opens pending.
+  const v7 = serializeRecord({ slug: 'x' }, []);
+  delete v7.approvals;
+  v7[':version'] = 7;
+  assert.deepEqual(parseProject(v7).approvals, []);
+});
+
+test('parseProject drops approval rows missing a stage or a name', () => {
+  const record = serializeRecord({ slug: 'x' }, []);
+  record.approvals.data = [
+    { stageIndex: 0, name: 'Content', approved: true },
+    { stageIndex: 4, name: '', approved: true },
+    { stageIndex: '4', name: 'Compliance', approved: 'true' },
+  ];
+  assert.deepEqual(parseProject(record).approvals, [
+    {
+      stageIndex: 4, name: 'Compliance', approved: true, approvedAt: '',
+    },
+  ]);
+});
