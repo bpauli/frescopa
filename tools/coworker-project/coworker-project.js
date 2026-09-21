@@ -7,6 +7,7 @@ import { listProjects, readProject, parseProject } from './projects.js';
 import { saveStageState, recomputeGating, saveCoworkerSession } from './stage-state.js';
 import { primaryOf } from './keyword-logic.js';
 import { getCoworker, coworkerUserId } from './coworker.js';
+import { awaitContext, CONTEXT_TIMEOUT_TEXT } from './boot-logic.js';
 import { suggestCreativeDirection } from './creative-direction.js';
 import stage4Readiness from './stage4-logic.js';
 import './keyword-panel.js';
@@ -890,10 +891,25 @@ class DaCoworkerProject extends LitElement {
 customElements.define('da-coworker-project', DaCoworkerProject);
 
 (async function init() {
-  const { context, token, actions } = await DA_SDK;
+  // The boot paragraph from coworker-project.html: it is on screen right now,
+  // and it stays there until the app can take over. Never leave it blank.
+  const boot = document.querySelector('.cw-boot');
+  // Say so when the DA shell handshake does not arrive, instead of waiting
+  // forever on an empty page - but keep waiting, so a late handshake still
+  // boots the app.
+  const first = await awaitContext(DA_SDK);
+  // A timeout is not a verdict: say so, then keep waiting, so a late handshake
+  // still boots the app. Anything else already failed, so stop with the message
+  // on screen rather than re-awaiting a promise that will not settle.
+  if (!first.ok) {
+    if (boot) boot.textContent = CONTEXT_TIMEOUT_TEXT;
+    if (first.reason !== 'timeout') return;
+  }
+  const { context, token, actions } = first.ok ? first.value : await DA_SDK;
   const app = document.createElement('da-coworker-project');
   app.context = context;
   app.token = token;
   app.actions = actions;
+  boot?.remove();
   document.body.append(app);
 }());

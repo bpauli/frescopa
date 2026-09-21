@@ -18,6 +18,19 @@ because `.git` is a file there. Any static server on port 3000 works instead,
 e.g. `python3 -m http.server 3000`: the app is plain ES modules, and DA loads it
 from `http://localhost:3000/tools/coworker-project/coworker-project.html`.
 
+When the server on port 3000 serves a different commit than the browser has
+cached, the page goes blank: the cached `coworker-project.js` imports modules
+that the served tree does not have yet, one 404 kills the whole module graph,
+and the app never boots. The shell now says so on screen instead of showing
+nothing, and this check names the skew in one line:
+
+```sh
+diff <(curl -s http://localhost:3000/tools/coworker-project/coworker-project.js) \
+     tools/coworker-project/coworker-project.js
+```
+
+Restart the server on the checkout you are editing, then hard-reload the DA tab.
+
 To show the app as a card in the DA UI, add a row to the `apps` config sheet at
 `https://da.live/config#/bpauli/frescopa/` (path
 `/tools/coworker-project/coworker-project`).
@@ -25,6 +38,7 @@ To show the app as a card in the DA UI, add a row to the `apps` config sheet at
 ## Structure
 
 - `coworker-project.html` / `.js` - shell + router (list / wizard / project).
+- `boot-logic.js` - the boot failure surface: never show a blank page.
 - `templates.js` - reads the DA Templates panel config (two-hop lookup).
 - `stages.js` - reads the stage-config sheet, grouped into stages/steps.
 - `project.js` - slug, uniqueness check, record builder, `createProject`.
