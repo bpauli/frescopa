@@ -836,11 +836,17 @@ class DaCoworkerProject extends LitElement {
       ${this.renderStagePanel(stages)}`;
   }
 
-  // The brief panel's "Add to chat" bubbles here; hand the text to the rail
-  // (light DOM, so we can reach it by query) to prefill the next message. (#36)
+  // The brief panel's "Add to chat" bubbles here, and so does the Stage 5 asset
+  // detail view's (#62); hand the text - and the lead the panel framed it with
+  // - to the rail (light DOM, so we can reach it by query) to prefill the next
+  // message. (#36)
   onAddToChat(e) {
     const text = e.detail?.text;
-    if (text) this.querySelector('da-chat-rail')?.prefill(text);
+    const lead = e.detail?.lead;
+    const rail = this.querySelector('da-chat-rail');
+    if (!text || !rail) return;
+    if (lead) rail.prefill(text, lead);
+    else rail.prefill(text);
   }
 
   // The approvals gate moved: keep the cache in sync, then let the stage status

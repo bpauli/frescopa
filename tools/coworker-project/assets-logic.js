@@ -23,6 +23,9 @@ const FAILED = 'Failed';
 // work Stage 5 deliberately does not do (variants, expand, fill).
 export const FIREFLY_URL = 'https://firefly.adobe.com/generate/image';
 
+// How long an asset title may get before it is cut at a word boundary.
+const TITLE_MAX = 72;
+
 /**
  * The extensionless DA path of the project's generated page - what the doc
  * read, the swap and the re-preview are all keyed by. A project with no page
@@ -141,16 +144,31 @@ export function assetState(row, busy) {
 }
 
 /**
- * The card caption. The demo's "Image title" has no source yet (the map leaves
- * it to the detail view), so the caption is what the page says the picture
- * shows, then what Firefly says it made, then the slot's own number. Pure.
- * @param {{alt?: string, description?: string, slot?: number}} row
+ * The display title of one asset - the demo's "Image title".
+ *
+ * The `assets` sheet has no title column, and the two candidates that are not
+ * `alt` both fail the producer: AO writes no title, and the per-run
+ * `description` is replaced on every Regenerate, so a card would rename itself
+ * whenever the picture changes. `alt` is the page's own words for this picture
+ * and survives regeneration, so it names the asset: its first sentence, cut at
+ * a word boundary. A row with no `alt` is named by its position, which always
+ * exists. Settled at ticket #62 - see
+ * docs/adr/0002-stage5-asset-title-is-the-slot-alt.md. Pure.
+ * @param {{alt?: string, slot?: number}} row
  * @returns {string}
  */
-export function assetLabel(row) {
+export function assetTitle(row) {
   const slot = Number(row?.slot);
-  return str(row?.alt) || str(row?.description)
-    || `Image ${Number.isFinite(slot) ? slot + 1 : 1}`;
+  const fallback = Number.isFinite(slot) ? `Image ${Math.round(slot) + 1}` : 'Image';
+  const alt = str(row?.alt);
+  if (!alt) return fallback;
+
+  // The first sentence of the alt is the subject; the rest is detail.
+  const first = str((alt.match(/^[^.!?]+/) || [alt])[0]) || alt;
+  const title = first.length <= TITLE_MAX
+    ? first
+    : `${str(first.slice(0, TITLE_MAX).replace(/\s+\S*$/, ''))}...`;
+  return title.charAt(0).toUpperCase() + title.slice(1);
 }
 
 /**
@@ -198,7 +216,7 @@ export function gridRows(slots, assets, busy) {
     .map((card) => ({
       ...card,
       state: assetState(card, running.has(card.slot)),
-      label: assetLabel(card),
+      label: assetTitle(card),
       thumbnails: thumbnailCandidates(card, card),
     }));
 }

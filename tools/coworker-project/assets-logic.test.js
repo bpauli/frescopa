@@ -9,7 +9,7 @@ import {
   mergeAssets,
   thumbnailCandidates,
   assetState,
-  assetLabel,
+  assetTitle,
   gridRows,
   assetCount,
   slotJobs,
@@ -194,16 +194,24 @@ test('assetState reads a slot nobody has asked for yet as empty', () => {
   assert.equal(assetState(null), 'empty');
 });
 
-// --- assetLabel ---
+// --- assetTitle ---
 
-test('assetLabel captions a card with what the page says the picture shows', () => {
-  assert.equal(assetLabel({ slot: 0, alt: 'Green beans drying' }), 'Green beans drying');
+test('assetTitle names an asset with what the page says the picture shows', () => {
+  assert.equal(assetTitle({ slot: 0, alt: 'Green beans drying' }), 'Green beans drying');
 });
 
-test('assetLabel falls back to the generated description, then the slot number', () => {
-  assert.equal(assetLabel({ slot: 1, description: 'A roastery at dawn.' }), 'A roastery at dawn.');
-  assert.equal(assetLabel({ slot: 2 }), 'Image 3');
-  assert.equal(assetLabel({}), 'Image 1');
+test('assetTitle keeps only the first sentence, so a caption stays a caption', () => {
+  assert.equal(
+    assetTitle({ slot: 0, alt: 'Green beans drying. Steam rises behind them.' }),
+    'Green beans drying',
+  );
+});
+
+test('assetTitle does not follow the per-run description, which a Regenerate replaces', () => {
+  // Settled at #62 (ADR 0002): the caption must not rename itself with the image.
+  assert.equal(assetTitle({ slot: 1, description: 'A roastery at dawn.' }), 'Image 2');
+  assert.equal(assetTitle({ slot: 2 }), 'Image 3');
+  assert.equal(assetTitle({}), 'Image');
 });
 
 // --- gridRows ---
