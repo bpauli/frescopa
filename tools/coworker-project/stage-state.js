@@ -72,6 +72,13 @@ export function deriveOverallStatus(stages) {
  * `approvals` is one row per named sign-off, keyed by stage
  * (`{ stageIndex, name, approved, approvedAt }`), so the one sheet carries every
  * stage's approvals - the gate is reused by stages 4, 5, and 7 (ticket #46).
+ *
+ * `assets` is one row per page image slot, keyed by `slot` (the index of the
+ * `<img>` in the page doc): `{id, slot, alt, prompt, status, sourceUrl,
+ * mediaUrl, model, aspect, visualStyle, palette, description, createdAt}`
+ * (ticket #58). `sourceUrl` is the Firefly presigned URL the asset came from
+ * (expires after an hour); `mediaUrl` is the permanent DA-hosted copy the page
+ * doc references, populated later by the page-swap ticket (#60).
  */
 export function serializeRecord(
   meta,
@@ -84,6 +91,7 @@ export function serializeRecord(
   preflight = null,
   coworkerSessions = [],
   approvals = [],
+  assets = [],
 ) {
   const ordered = [...stages].sort((a, b) => a.stageIndex - b.stageIndex);
   const stageRows = ordered.map((s) => ({
@@ -165,10 +173,27 @@ export function serializeRecord(
       approved: !!r.approved,
       approvedAt: r.approved ? (r.approvedAt || '') : '',
     }));
+  const assetRows = (assets || [])
+    .filter((r) => r && Number.isFinite(Number(r.slot)))
+    .map((r) => ({
+      id: r.id || '',
+      slot: Number(r.slot),
+      alt: r.alt || '',
+      prompt: r.prompt || '',
+      status: r.status || '',
+      sourceUrl: r.sourceUrl || '',
+      mediaUrl: r.mediaUrl || '',
+      model: r.model || '',
+      aspect: r.aspect || '',
+      visualStyle: r.visualStyle || '',
+      palette: r.palette || '',
+      description: r.description || '',
+      createdAt: r.createdAt || '',
+    }));
   return {
     ':type': 'multi-sheet',
-    ':version': 8,
-    ':names': ['meta', 'stages', 'steps', 'keywords', 'cannibalization', 'creativeDirection', 'brief', 'briefLinks', 'page', 'preflight', 'coworkerSessions', 'approvals'],
+    ':version': 9,
+    ':names': ['meta', 'stages', 'steps', 'keywords', 'cannibalization', 'creativeDirection', 'brief', 'briefLinks', 'page', 'preflight', 'coworkerSessions', 'approvals', 'assets'],
     meta: sheet([meta]),
     stages: sheet(stageRows),
     steps: sheet(stepRows),
@@ -181,6 +206,7 @@ export function serializeRecord(
     preflight: sheet(preflightRows),
     coworkerSessions: sheet(sessionRows),
     approvals: sheet(approvalRows),
+    assets: sheet(assetRows),
   };
 }
 
@@ -204,7 +230,8 @@ export async function saveStageState(context, daFetch, slug, project, { stageInd
   const meta = { ...project.meta, status: deriveOverallStatus(gated) };
 
   // Preserve the keyword list, cannibalization, creative-direction, brief,
-  // page, pre-flight, Coworker-session, and approvals data across a status write.
+  // page, pre-flight, Coworker-session, approvals, and assets data across a
+  // status write.
   const record = serializeRecord(
     meta,
     gated,
@@ -216,6 +243,7 @@ export async function saveStageState(context, daFetch, slug, project, { stageInd
     project.preflight,
     project.coworkerSessions,
     project.approvals,
+    project.assets,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return { meta, stages: gated };
@@ -247,6 +275,7 @@ export async function saveKeywords(context, daFetch, slug, keywords) {
     model.preflight,
     model.coworkerSessions,
     model.approvals,
+    model.assets,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return keywords;
@@ -277,6 +306,7 @@ export async function saveCannibalization(context, daFetch, slug, cannibalizatio
     model.preflight,
     model.coworkerSessions,
     model.approvals,
+    model.assets,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return cannibalization;
@@ -310,6 +340,7 @@ export async function saveCreativeDirection(context, daFetch, slug, changes) {
     model.preflight,
     model.coworkerSessions,
     model.approvals,
+    model.assets,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return creativeDirection;
@@ -343,6 +374,7 @@ export async function saveBrief(context, daFetch, slug, changes) {
     model.preflight,
     model.coworkerSessions,
     model.approvals,
+    model.assets,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return brief;
@@ -376,6 +408,7 @@ export async function savePage(context, daFetch, slug, changes) {
     model.preflight,
     model.coworkerSessions,
     model.approvals,
+    model.assets,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return page;
@@ -409,6 +442,7 @@ export async function savePreflight(context, daFetch, slug, changes) {
     preflight,
     model.coworkerSessions,
     model.approvals,
+    model.assets,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return preflight;
@@ -448,6 +482,7 @@ export async function saveCoworkerSession(context, daFetch, slug, { userId, sess
     model.preflight,
     coworkerSessions,
     model.approvals,
+    model.assets,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return coworkerSessions;
@@ -486,6 +521,50 @@ export async function saveApprovals(context, daFetch, slug, { stageIndex, approv
     model.page,
     model.preflight,
     model.coworkerSessions,
+    merged,
+    model.assets,
+  );
+  await writeRecord(org, site, slug, daFetch, record);
+  return merged;
+}
+
+/**
+ * Persist Stage 5 asset rows (ticket #58). Read-modify-write so a concurrent
+ * write is not clobbered, and keyed BY SLOT: an incoming row replaces the
+ * stored row with the same `slot` and every other row is kept, so a Regenerate
+ * of one slot rewrites exactly that one row. The row carries both `sourceUrl`
+ * (the expiring Firefly presigned URL the asset came from) and `mediaUrl` (the
+ * permanent DA-hosted copy the page doc references, populated by the page-swap
+ * ticket #60) - this save only stores what it is given.
+ * @param {{org: string, repo: string}} context
+ * @param {(url: string, opts?: object) => Promise<Response>} daFetch
+ * @param {string} slug
+ * @param {{assets: Array<{id, slot, alt, prompt, status, sourceUrl, mediaUrl,
+ *   model, aspect, visualStyle, palette, description, createdAt}>}} changes
+ * @returns {Promise<Array<object>>} every stored asset row
+ */
+export async function saveAssets(context, daFetch, slug, { assets } = {}) {
+  const { org, repo: site } = context || {};
+  if (!org || !site || typeof daFetch !== 'function' || !slug) throw new Error('Missing DA context.');
+  const model = parseProject(await readProject(context, daFetch, slug));
+  if (!model) throw new Error('Project not found.');
+  const incoming = (assets || []).filter((r) => r && Number.isFinite(Number(r.slot)));
+  const replaced = new Set(incoming.map((r) => Number(r.slot)));
+  const merged = [
+    ...(model.assets || []).filter((r) => !replaced.has(Number(r.slot))),
+    ...incoming,
+  ];
+  const record = serializeRecord(
+    model.meta,
+    model.stages,
+    model.keywords,
+    model.cannibalization,
+    model.creativeDirection,
+    model.brief,
+    model.page,
+    model.preflight,
+    model.coworkerSessions,
+    model.approvals,
     merged,
   );
   await writeRecord(org, site, slug, daFetch, record);

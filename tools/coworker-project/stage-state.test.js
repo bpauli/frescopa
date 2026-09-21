@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { parseProject } from './projects.js';
 import {
   serializeRecord, savePage, savePreflight, saveBrief, saveCoworkerSession, saveKeywords,
-  saveApprovals, saveStageState,
+  saveApprovals, saveStageState, saveAssets,
 } from './stage-state.js';
 
 // A fake daFetch backed by a single in-memory record: a GET (no options) reads
@@ -35,6 +35,24 @@ const preflight = {
     name: 'Web performance', passed: 8, total: 10, score: 80, source: 'psi',
   }],
 };
+
+// One Stage 5 asset row (all 13 fields) for the given slot, overridable.
+const asset = (slot, over = {}) => ({
+  id: `asset-${slot}`,
+  slot,
+  alt: `Alt ${slot}`,
+  prompt: `Prompt ${slot}`,
+  status: 'Generated',
+  sourceUrl: `https://firefly.example/img-${slot}.png`,
+  mediaUrl: '',
+  model: 'image4_standard',
+  aspect: '16:9',
+  visualStyle: 'Editorial',
+  palette: 'Warm',
+  description: `Description ${slot}`,
+  createdAt: '2026-01-06T00:00:00Z',
+  ...over,
+});
 
 test('serializeRecord round-trips page and preflight through parseProject', () => {
   const stages = [{
@@ -225,4 +243,80 @@ test('saveStageState preserves the approvals sheet across a status write', async
   const written = parseProject(writes[0]);
   assert.equal(written.stages[0].status, 'Approved');
   assert.deepEqual(written.approvals, rows);
+});
+
+test('serializeRecord round-trips the assets sheet through parseProject', () => {
+  const assets = [asset(0), asset(2)];
+  const record = serializeRecord(
+    { slug: 'x' },
+    [],
+    [{ text: 'k', role: 'primary' }],
+    null,
+    null,
+    null,
+    page,
+    preflight,
+    [],
+    [],
+    assets,
+  );
+  assert.equal(record[':version'], 9);
+  const model = parseProject(record);
+  assert.deepEqual(model.assets, assets);
+  assert.deepEqual(model.page, page);
+  assert.deepEqual(model.preflight, preflight);
+  assert.deepEqual(model.keywords, [{ text: 'k', role: 'primary' }]);
+});
+
+test('saveAssets stores one row per slot and keeps the rest of the record', async () => {
+  const record = serializeRecord({ slug: 'x' }, [], [{ text: 'k', role: 'primary' }], null, null, null, page, preflight);
+  const { daFetch, writes } = fakeDa(record);
+
+  const rows = [asset(0), asset(1)];
+  const saved = await saveAssets(ctx, daFetch, 'x', { assets: rows });
+  assert.equal(saved.length, 2);
+
+  const written = parseProject(writes[0]);
+  assert.deepEqual(written.assets, rows);
+  assert.deepEqual(written.page, page);
+  assert.deepEqual(written.preflight, preflight);
+  assert.deepEqual(written.keywords, [{ text: 'k', role: 'primary' }]);
+});
+
+test('saveAssets replaces exactly the one slot a Regenerate rewrites', async () => {
+  const rows = [asset(0), asset(1), asset(2)];
+  const record = serializeRecord({ slug: 'x' }, [], [], null, null, null, page, null, [], [], rows);
+  const { daFetch, writes } = fakeDa(record);
+
+  const regen = asset(1, {
+    id: 'asset-1-new',
+    sourceUrl: 'https://firefly.example/regen.png',
+    createdAt: '2026-01-07T00:00:00Z',
+  });
+  await saveAssets(ctx, daFetch, 'x', { assets: [regen] });
+
+  const written = parseProject(writes[0]);
+  // Kept rows stay in place; the replaced row lands last, same merge order as
+  // saveApprovals.
+  assert.deepEqual(written.assets, [rows[0], rows[2], regen]);
+  assert.deepEqual(written.page, page);
+});
+
+test('saveAssets merges new slots alongside the stored ones', async () => {
+  const record = serializeRecord({ slug: 'x' }, [], [], null, null, null, null, null, [], [], [asset(0)]);
+  const { daFetch, writes } = fakeDa(record);
+
+  await saveAssets(ctx, daFetch, 'x', { assets: [asset(1)] });
+
+  assert.deepEqual(parseProject(writes[0]).assets, [asset(0), asset(1)]);
+});
+
+test('another stage write preserves the assets sheet', async () => {
+  const rows = [asset(0), asset(1)];
+  const record = serializeRecord({ slug: 'x' }, [], [], null, null, null, null, null, [], [], rows);
+  const { daFetch, writes } = fakeDa(record);
+
+  await savePreflight(ctx, daFetch, 'x', preflight);
+
+  assert.deepEqual(parseProject(writes[0]).assets, rows);
 });

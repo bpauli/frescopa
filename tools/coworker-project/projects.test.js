@@ -104,3 +104,46 @@ test('parseProject drops approval rows missing a stage or a name', () => {
     },
   ]);
 });
+
+test('parseProject reads the assets sheet (row per page image slot)', () => {
+  const assets = [
+    {
+      id: 'asset-0',
+      slot: 0,
+      alt: 'Hero',
+      prompt: 'A hero shot',
+      status: 'Generated',
+      sourceUrl: 'https://firefly.example/hero.png',
+      mediaUrl: '',
+      model: 'image4_standard',
+      aspect: '16:9',
+      visualStyle: 'Editorial',
+      palette: 'Warm',
+      description: 'A hero image',
+      createdAt: '2026-01-06T00:00:00Z',
+    },
+  ];
+  const record = serializeRecord({ slug: 'x' }, [], [], null, null, null, null, null, [], [], assets);
+  assert.deepEqual(parseProject(record).assets, assets);
+});
+
+test('parseProject yields no assets for an older record without the sheet', () => {
+  // A v8 record: no `assets` sheet -> [] -> Stage 5 starts empty. No migration.
+  const v8 = serializeRecord({ slug: 'x' }, []);
+  delete v8.assets;
+  v8[':version'] = 8;
+  assert.deepEqual(parseProject(v8).assets, []);
+});
+
+test('parseProject drops asset rows without a usable slot', () => {
+  const record = serializeRecord({ slug: 'x' }, []);
+  record.assets.data = [
+    { id: 'a', slot: 'x' },
+    { id: 'b' },
+    { id: 'c', slot: '2' },
+  ];
+  const parsed = parseProject(record).assets;
+  assert.equal(parsed.length, 1);
+  assert.equal(parsed[0].id, 'c');
+  assert.equal(parsed[0].slot, 2);
+});
