@@ -1,15 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { assetRecord, assetRow } from './assets-logic.js';
 import {
   MODEL_NOTE,
-  assetTitle,
   formatCreatedAt,
   detailFields,
   imageCandidates,
   downloadName,
   regenerationJob,
-  assetRow,
+  rowDirection,
 } from './asset-detail-logic.js';
 
 const AT = '2026-01-12T09:30:00.000Z';
@@ -32,42 +32,20 @@ const row = (over = {}) => ({
   ...over,
 });
 
+// A `generateAsset` result (#59) for a re-run of that slot.
+const result = {
+  slot: 2,
+  prompt: 'A new prompt.',
+  aspect: '16:9',
+  sourceUrl: 'https://firefly.s3.amazonaws.com/new.jpg',
+  model: 'image4_standard',
+  description: 'A fresh take on the same counter.',
+  createdAt: '2026-02-02T10:00:00.000Z',
+  status: 'Generated',
+  error: null,
+};
+
 const field = (asset, key) => detailFields(asset).find((f) => f.key === key);
-
-// --- assetTitle: the settled title source ---
-
-test('assetTitle names the asset from the slot alt, the page\'s own words', () => {
-  assert.equal(
-    assetTitle(row()),
-    'A barista pouring a flat white on a marble counter',
-  );
-});
-
-test('assetTitle keeps only the first sentence of a long alt', () => {
-  const asset = row({ alt: 'A barista pours a flat white. Steam rises from the cup.' });
-  assert.equal(assetTitle(asset), 'A barista pours a flat white');
-});
-
-test('assetTitle cuts an overlong title at a word boundary', () => {
-  const alt = 'A barista pouring a flat white on a marble counter beside a window '
-    + 'with a view over the old town square at sunrise';
-  const title = assetTitle(row({ alt }));
-  assert.ok(title.length <= 76, title);
-  assert.ok(title.endsWith('...'), title);
-  assert.ok(!/\s\.\.\.$/.test(title), title);
-});
-
-test('assetTitle does not follow the per-run description, so a Regenerate keeps the name', () => {
-  const before = assetTitle(row());
-  const after = assetTitle(row({ description: 'Something else entirely.' }));
-  assert.equal(after, before);
-});
-
-test('assetTitle falls back to the slot position when the row has no alt', () => {
-  assert.equal(assetTitle(row({ alt: '' })), 'Image 3');
-  assert.equal(assetTitle({ slot: 0 }), 'Image 1');
-  assert.equal(assetTitle({}), 'Image');
-});
 
 // --- formatCreatedAt ---
 
@@ -214,22 +192,31 @@ test('regenerationJob still builds a prompt for a row with neither alt nor promp
   assert.equal(job.aspect, '1:1');
 });
 
-// --- assetRow ---
+// --- rowDirection ---
 
-const result = {
-  slot: 2,
-  prompt: 'A new prompt.',
-  aspect: '16:9',
-  sourceUrl: 'https://firefly.s3.amazonaws.com/new.jpg',
-  model: 'image4_standard',
-  description: 'A fresh take on the same counter.',
-  createdAt: '2026-02-02T10:00:00.000Z',
-  status: 'Generated',
-  error: null,
-};
+test('rowDirection recovers the look the row was made for', () => {
+  assert.deepEqual(rowDirection(row()), {
+    visualStyle: { name: 'Warm editorial' },
+    colorPalette: { name: 'Roasted earth' },
+  });
+});
 
-test('assetRow keeps what belongs to the slot and takes what belongs to the image', () => {
-  const next = assetRow(row(), result);
+test('rowDirection answers null for a row that remembers no look', () => {
+  assert.equal(rowDirection({ slot: 1 }), null);
+  assert.equal(rowDirection(null), null);
+});
+
+test('rowDirection keeps the half a row does carry', () => {
+  assert.deepEqual(rowDirection(row({ palette: '' })), {
+    visualStyle: { name: 'Warm editorial' },
+    colorPalette: undefined,
+  });
+});
+
+// --- the row a Regenerate saves: the grid's builder (#61 assets-logic.js) ---
+
+test('the previous row stands in for the page slot, so alt and id survive', () => {
+  const next = assetRecord(assetRow(result, row(), rowDirection(row())));
   assert.equal(next.id, 'slot-2');
   assert.equal(next.slot, 2);
   assert.equal(next.alt, 'A barista pouring a flat white on a marble counter');
@@ -238,34 +225,20 @@ test('assetRow keeps what belongs to the slot and takes what belongs to the imag
   assert.equal(next.description, 'A fresh take on the same counter.');
   assert.equal(next.createdAt, '2026-02-02T10:00:00.000Z');
   assert.equal(next.status, 'Generated');
-});
-
-test('assetRow clears the durable URL, which the new bytes do not have yet', () => {
-  assert.equal(assetRow(row(), result).mediaUrl, '');
-});
-
-test('assetRow drops a description that described the previous image', () => {
-  const next = assetRow(row(), { ...result, description: '' });
-  assert.equal(next.description, '');
-});
-
-test('assetRow records the creative direction the new image was made under', () => {
-  const next = assetRow(row(), result, {
-    visualStyle: { name: 'Cold minimal' },
-    colorPalette: { name: 'Slate' },
-  });
-  assert.equal(next.visualStyle, 'Cold minimal');
-  assert.equal(next.palette, 'Slate');
-});
-
-test('assetRow keeps the row\'s look when the caller passes no direction', () => {
-  const next = assetRow(row(), result);
   assert.equal(next.visualStyle, 'Warm editorial');
   assert.equal(next.palette, 'Roasted earth');
 });
 
-test('assetRow carries no soft error, so it is saveAssets-ready as it stands', () => {
-  assert.deepEqual(Object.keys(assetRow(row(), result)).sort(), [
+test('the saved row claims no durable URL, which the new bytes do not have yet', () => {
+  assert.equal(assetRow(result, row(), null).mediaUrl, '');
+});
+
+test('the saved row drops a description that described the previous image', () => {
+  assert.equal(assetRow({ ...result, description: '' }, row(), null).description, '');
+});
+
+test('the saved row carries no soft error, so saveAssets can take it as it stands', () => {
+  assert.deepEqual(Object.keys(assetRecord(assetRow(result, row(), null))).sort(), [
     'alt', 'aspect', 'createdAt', 'description', 'id', 'mediaUrl', 'model',
     'palette', 'prompt', 'slot', 'sourceUrl', 'status', 'visualStyle',
   ]);

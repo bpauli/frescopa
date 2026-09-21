@@ -22,9 +22,10 @@
 //     same blob is what Download saves, so opening the view costs one fetch and
 //     the save costs none. The Firefly `sourceUrl` is the fallback: CORS-
 //     readable from the browser, but expired an hour after generation.
-//   - REGENERATE TAKES THE GRID'S PATH: `generateAsset` (#59) for the new
-//     image, then `swapAssetsIntoPage` (#60), which stores the bytes in DA,
-//     rewrites that one `<img src>`, re-previews and saves the row through
+//   - REGENERATE TAKES THE GRID'S PATH, AND ITS CODE: `generateAsset` (#59)
+//     for the new image, the grid's own `assetRow`/`assetRecord` (#61) for the
+//     row it saves, then `swapAssetsIntoPage` (#60), which stores the bytes in
+//     DA, rewrites that one `<img src>`, re-previews and saves the row through
 //     `saveAssets` - merge-by-slot, so exactly one row changes. An owner that
 //     already has its own path passes it as `.regenerate` and that one is used
 //     instead, so the app never grows two generation policies.
@@ -37,8 +38,9 @@ import { generateAsset } from './asset-generation.js';
 import { fetchAssetBytes, swapAssetsIntoPage } from './asset-swap.js';
 import { saveAssets } from './stage-state.js';
 import { ASSET_CHAT_LEAD, composeAssetMessage } from './chat-context.js';
+import { assetRecord, assetRow, assetTitle } from './assets-logic.js';
 import {
-  assetTitle, detailFields, imageCandidates, downloadName, regenerationJob, assetRow,
+  detailFields, imageCandidates, downloadName, regenerationJob, rowDirection,
 } from './asset-detail-logic.js';
 
 const FAILED = 'Failed';
@@ -192,15 +194,18 @@ class DaAssetDetail extends LitElement {
   // screen untouched, and a failed swap still records the new image so the
   // producer does not lose it.
   async generateAndSwap() {
-    const result = await generateAsset(this.context, regenerationJob(
-      this.asset,
-      this.creativeDirection,
-    ));
+    // The row remembers the look it was made for, so a standalone detail view
+    // still regenerates in the project's style when no direction is passed.
+    const direction = this.creativeDirection || rowDirection(this.asset);
+    const result = await generateAsset(this.context, regenerationJob(this.asset, direction));
     if (result.status === FAILED || !result.sourceUrl) {
       this._error = result.error || 'The image could not be generated.';
       return null;
     }
-    const row = assetRow(this.asset, result, this.creativeDirection);
+    // The grid's row builder, so a Regenerate here saves exactly what a
+    // Regenerate there saves. The previous row stands in for the page slot: it
+    // carries the `alt` the page shows and the crop the slot was generated at.
+    const row = assetRecord(assetRow(result, this.asset, direction));
 
     const swap = await swapAssetsIntoPage(this.context, this.daFetch, {
       slug: this.slug,

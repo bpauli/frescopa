@@ -51,6 +51,7 @@ so a producer who sees them diverge can act on it.
 - Editing alt text in the app is deferred, not refused. The detail view surfaces
   the value; a later ticket can make that field editable and write it back with
   the same surgical rewrite the `src` swap uses.
-- A regenerated image keeps the row's `alt` (`assetRow` in
-  `tools/coworker-project/asset-detail-logic.js`) and drops the previous
-  `description`, because that sentence described the previous image.
+- A regenerated image keeps the row's `alt` (the grid's `assetRow` in
+  `tools/coworker-project/assets-logic.js`, which the detail view's Regenerate
+  reuses) and drops the previous `description`, because that sentence described
+  the previous image.

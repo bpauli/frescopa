@@ -32,9 +32,10 @@ The title is the slot's `alt`, shortened to a title: its first sentence, cut at
 a word boundary at 72 characters. A row with no `alt` is titled by its position,
 `Image <slot + 1>`, which always exists.
 
-The rule lives in `assetTitle` in
-`tools/coworker-project/asset-detail-logic.js`, so the grid (#61) and the detail
-view name the same asset the same way.
+The rule is `assetTitle` in `tools/coworker-project/assets-logic.js` - the
+shared Stage 5 asset logic - so the grid caption (#61) and the detail view title
+(#62) are the same string. It replaces the grid's provisional `assetLabel`,
+which fell back to the `description` while this decision was still open.
 
 ## Consequences
 
@@ -42,6 +43,8 @@ view name the same asset the same way.
   not.
 - No extra AO turn, no new sheet column, and no invented text.
 - A long `alt` is truncated in the title, so the full text is still shown as the
-  ALT Text field of the detail view, never only as the heading.
+  ALT Text field of the detail view, never only as the heading. The grid's card
+  still uses the row's own `alt` for the thumbnail's `alt` attribute, so nothing
+  a screen reader reads is truncated.
 - If a later ticket ever gives AO a real title field, `assetTitle` is the one
   place that changes.
