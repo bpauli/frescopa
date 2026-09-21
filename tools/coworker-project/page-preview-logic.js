@@ -9,7 +9,9 @@ const str = (v) => (typeof v === 'string' ? v.trim() : '');
 // Query parameter carrying the generation timestamp on the embedded preview
 // URL. The aem.page render is cached for a minute, and an iframe whose `src`
 // does not change is never reloaded, so the stamp is what makes a regenerated
-// page show up in the Layout tab instead of the previous render.
+// page show up in the Layout tab instead of the previous render - and, once a
+// Refresh bumps the tick (see `refreshStamp`), what makes a swapped page show
+// its real assets (ticket #63).
 const EMBED_STAMP_PARAM = 'cw-generated';
 
 /**
@@ -131,6 +133,25 @@ export function pageChanges(result) {
     editUrl: str(r.editUrl),
     status: str(r.status),
   };
+}
+
+/**
+ * The stamp `embedUrl` puts on the preview URL for a generation time and a
+ * refresh tick. Tick 0 is the bare generation time, so a panel that is never
+ * refreshed embeds the exact URL it always did. Every later tick yields a
+ * stamp the frame has not loaded yet - and a changed `src` is the only thing
+ * that makes an iframe reload. The new query also misses the minute-long
+ * aem.page render cache, which is the point of a Refresh after an asset swap
+ * re-previewed the page (#63). Pure.
+ * @param {string} [generatedAt]
+ * @param {number} [tick]
+ * @returns {string}
+ */
+export function refreshStamp(generatedAt, tick) {
+  const base = str(generatedAt);
+  const n = Number.isFinite(Number(tick)) ? Math.max(0, Math.floor(Number(tick))) : 0;
+  if (!n) return base;
+  return `${base || 'preview'}.${n}`;
 }
 
 /**
