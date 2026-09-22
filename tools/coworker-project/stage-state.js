@@ -79,6 +79,13 @@ export function deriveOverallStatus(stages) {
  * (ticket #58). `sourceUrl` is the Firefly presigned URL the asset came from
  * (expires after an hour); `mediaUrl` is the permanent DA-hosted copy the page
  * doc references, populated later by the page-swap ticket (#60).
+ *
+ * `locales` is one row per locale the producer selected in Stage 6, keyed by
+ * `code`: `{code, label, prefix, isDefault, status, path, previewUrl, editUrl,
+ * generatedAt, error}` (ticket #76). `prefix` is the site folder the locale is
+ * served from (`/fr`), `path` the localized page path (`/fr/drafts/x`), and the
+ * default locale's row points at the Stage 4 page itself, which is never
+ * translated.
  */
 export function serializeRecord(
   meta,
@@ -92,6 +99,7 @@ export function serializeRecord(
   coworkerSessions = [],
   approvals = [],
   assets = [],
+  locales = [],
 ) {
   const ordered = [...stages].sort((a, b) => a.stageIndex - b.stageIndex);
   const stageRows = ordered.map((s) => ({
@@ -190,10 +198,24 @@ export function serializeRecord(
       description: r.description || '',
       createdAt: r.createdAt || '',
     }));
+  const localeRows = (locales || [])
+    .filter((r) => r && String(r.code || '').trim())
+    .map((r) => ({
+      code: String(r.code).trim(),
+      label: r.label || '',
+      prefix: r.prefix || '',
+      isDefault: !!r.isDefault,
+      status: r.status || '',
+      path: r.path || '',
+      previewUrl: r.previewUrl || '',
+      editUrl: r.editUrl || '',
+      generatedAt: r.generatedAt || '',
+      error: r.error || '',
+    }));
   return {
     ':type': 'multi-sheet',
-    ':version': 9,
-    ':names': ['meta', 'stages', 'steps', 'keywords', 'cannibalization', 'creativeDirection', 'brief', 'briefLinks', 'page', 'preflight', 'coworkerSessions', 'approvals', 'assets'],
+    ':version': 10,
+    ':names': ['meta', 'stages', 'steps', 'keywords', 'cannibalization', 'creativeDirection', 'brief', 'briefLinks', 'page', 'preflight', 'coworkerSessions', 'approvals', 'assets', 'locales'],
     meta: sheet([meta]),
     stages: sheet(stageRows),
     steps: sheet(stepRows),
@@ -207,6 +229,7 @@ export function serializeRecord(
     coworkerSessions: sheet(sessionRows),
     approvals: sheet(approvalRows),
     assets: sheet(assetRows),
+    locales: sheet(localeRows),
   };
 }
 
@@ -244,6 +267,7 @@ export async function saveStageState(context, daFetch, slug, project, { stageInd
     project.coworkerSessions,
     project.approvals,
     project.assets,
+    project.locales,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return { meta, stages: gated };
@@ -276,6 +300,7 @@ export async function saveKeywords(context, daFetch, slug, keywords) {
     model.coworkerSessions,
     model.approvals,
     model.assets,
+    model.locales,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return keywords;
@@ -307,6 +332,7 @@ export async function saveCannibalization(context, daFetch, slug, cannibalizatio
     model.coworkerSessions,
     model.approvals,
     model.assets,
+    model.locales,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return cannibalization;
@@ -341,6 +367,7 @@ export async function saveCreativeDirection(context, daFetch, slug, changes) {
     model.coworkerSessions,
     model.approvals,
     model.assets,
+    model.locales,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return creativeDirection;
@@ -375,6 +402,7 @@ export async function saveBrief(context, daFetch, slug, changes) {
     model.coworkerSessions,
     model.approvals,
     model.assets,
+    model.locales,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return brief;
@@ -409,6 +437,7 @@ export async function savePage(context, daFetch, slug, changes) {
     model.coworkerSessions,
     model.approvals,
     model.assets,
+    model.locales,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return page;
@@ -443,6 +472,7 @@ export async function savePreflight(context, daFetch, slug, changes) {
     model.coworkerSessions,
     model.approvals,
     model.assets,
+    model.locales,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return preflight;
@@ -483,6 +513,7 @@ export async function saveCoworkerSession(context, daFetch, slug, { userId, sess
     coworkerSessions,
     model.approvals,
     model.assets,
+    model.locales,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return coworkerSessions;
@@ -523,6 +554,7 @@ export async function saveApprovals(context, daFetch, slug, { stageIndex, approv
     model.coworkerSessions,
     merged,
     model.assets,
+    model.locales,
   );
   await writeRecord(org, site, slug, daFetch, record);
   return merged;
@@ -565,6 +597,59 @@ export async function saveAssets(context, daFetch, slug, { assets } = {}) {
     model.preflight,
     model.coworkerSessions,
     model.approvals,
+    merged,
+    model.locales,
+  );
+  await writeRecord(org, site, slug, daFetch, record);
+  return merged;
+}
+
+/**
+ * Persist Stage 6 locale rows (ticket #76). Read-modify-write so a concurrent
+ * write is not clobbered, and keyed BY CODE: an incoming row replaces the
+ * stored row with the same `code` and every other row is kept, so re-translating
+ * one locale rewrites exactly that one row while the others keep their
+ * generated pages.
+ *
+ * Removing a locale is a save too, and it is the one case a merge cannot
+ * express: pass `remove` with the codes the producer de-selected and they are
+ * dropped from the sheet. Deleting the locale's DA doc is the panel's job, not
+ * this one - this function only owns the record.
+ *
+ * @param {{org: string, repo: string}} context
+ * @param {(url: string, opts?: object) => Promise<Response>} daFetch
+ * @param {string} slug
+ * @param {{locales?: Array<{code, label, prefix, isDefault, status, path,
+ *   previewUrl, editUrl, generatedAt, error}>, remove?: Array<string>}} changes
+ * @returns {Promise<Array<object>>} every stored locale row
+ */
+export async function saveLocales(context, daFetch, slug, { locales, remove } = {}) {
+  const { org, repo: site } = context || {};
+  if (!org || !site || typeof daFetch !== 'function' || !slug) throw new Error('Missing DA context.');
+  const model = parseProject(await readProject(context, daFetch, slug));
+  if (!model) throw new Error('Project not found.');
+  const key = (c) => String(c ?? '').trim().toLowerCase();
+  const incoming = (locales || []).filter((r) => r && key(r.code));
+  const dropped = new Set([
+    ...incoming.map((r) => key(r.code)),
+    ...(remove || []).map(key).filter(Boolean),
+  ]);
+  const merged = [
+    ...(model.locales || []).filter((r) => !dropped.has(key(r.code))),
+    ...incoming,
+  ];
+  const record = serializeRecord(
+    model.meta,
+    model.stages,
+    model.keywords,
+    model.cannibalization,
+    model.creativeDirection,
+    model.brief,
+    model.page,
+    model.preflight,
+    model.coworkerSessions,
+    model.approvals,
+    model.assets,
     merged,
   );
   await writeRecord(org, site, slug, daFetch, record);

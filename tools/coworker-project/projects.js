@@ -78,8 +78,9 @@ const cdSource = (v) => {
  * stageIndex (each with its ordered steps), the Stage 1 keyword list and
  * cannibalization result, the Stage 2 creative-direction selection, the
  * Stage 3 brief, the Stage 4 generated page and pre-flight result, the
- * per-producer Coworker session rows, the per-stage approvals, and the Stage 5
- * asset rows (one per page image slot).
+ * per-producer Coworker session rows, the per-stage approvals, the Stage 5
+ * asset rows (one per page image slot), and the Stage 6 locale rows (one per
+ * selected locale).
  * @returns {{meta: object, stages: Array<{stage, stageIndex, status, steps}>,
  *   keywords: Array<{text, role}>, cannibalization: object,
  *   creativeDirection: {baseTemplate, visualStyle, colorPalette},
@@ -88,7 +89,9 @@ const cdSource = (v) => {
  *   preflight: {ranAt, categories: Array<{name, passed, total, score, source}>},
  *   coworkerSessions: Array<{userId, sessionId, startedAt}>,
  *   assets: Array<{id, slot, alt, prompt, status, sourceUrl, mediaUrl, model,
- *   aspect, visualStyle, palette, description, createdAt}>} | null}
+ *   aspect, visualStyle, palette, description, createdAt}>,
+ *   locales: Array<{code, label, prefix, isDefault, status, path, previewUrl,
+ *   editUrl, generatedAt, error}>} | null}
  */
 export function parseProject(record) {
   if (!record || typeof record !== 'object') return null;
@@ -222,6 +225,25 @@ export function parseProject(record) {
       createdAt: r.createdAt || '',
     }))
     .filter((r) => Number.isFinite(r.slot));
+  // One row per locale the producer selected in Stage 6, keyed by `code`
+  // (ticket #76). `prefix` is the site folder the locale is served from and
+  // `path` the localized page path; the default locale's row points at the
+  // Stage 4 page itself, which is never translated. An older record has no
+  // sheet -> [].
+  const locales = (record.locales?.data ?? [])
+    .map((r) => ({
+      code: String(r.code ?? '').trim(),
+      label: r.label || '',
+      prefix: r.prefix || '',
+      isDefault: r.isDefault === true || r.isDefault === 'true',
+      status: r.status || '',
+      path: r.path || '',
+      previewUrl: r.previewUrl || '',
+      editUrl: r.editUrl || '',
+      generatedAt: r.generatedAt || '',
+      error: r.error || '',
+    }))
+    .filter((r) => r.code);
   return {
     meta,
     stages,
@@ -234,5 +256,6 @@ export function parseProject(record) {
     coworkerSessions,
     approvals,
     assets,
+    locales,
   };
 }
