@@ -10,6 +10,8 @@ import { getCoworker, coworkerUserId } from './coworker.js';
 import { awaitContext, CONTEXT_TIMEOUT_TEXT } from './boot-logic.js';
 import { suggestCreativeDirection } from './creative-direction.js';
 import stage4Readiness from './stage4-logic.js';
+import stage5Readiness, { STAGE5_APPROVALS, assetsStamp } from './stage5-logic.js';
+import { mergeAssets } from './assets-logic.js';
 import './keyword-panel.js';
 import './cannibalization-panel.js';
 import './base-template-panel.js';
@@ -22,6 +24,9 @@ import './brief-links-panel.js';
 import './page-preview-panel.js';
 import './preflight-panel.js';
 import './approvals-panel.js';
+import './assets-panel.js';
+import './assets-rendering-panel.js';
+import './asset-detail-panel.js';
 
 // Coworker Projects app. Round one routes between three views:
 //   list    - the projects landing (the front door)
@@ -101,6 +106,7 @@ function stage3Readiness(brief) {
 
 // Stage 4's rule is `stage4Readiness` in stage4-logic.js - it lives in its own
 // module so it can be unit tested (this one boots the app on import). (#44)
+// Stage 5's is `stage5Readiness` in stage5-logic.js, for the same reason. (#64)
 
 // Where to land when a project opens: the furthest unlocked stage.
 function defaultActiveStage(stages) {
@@ -124,6 +130,7 @@ class DaCoworkerProject extends LitElement {
     _stageError: { state: true },
     _cdSuggestions: { state: true },
     _cdLoadingSuggestions: { state: true },
+    _assetDetail: { state: true },
     _step: { state: true },
     _values: { state: true },
     _templates: { state: true },
@@ -149,6 +156,7 @@ class DaCoworkerProject extends LitElement {
     this._stageError = null;
     this._cdSuggestions = null;
     this._cdLoadingSuggestions = false;
+    this._assetDetail = null;
     this._step = 0;
     this._values = {
       title: '', description: '', templateId: '', templatePath: '',
@@ -207,6 +215,7 @@ class DaCoworkerProject extends LitElement {
     this._loadingProject = true;
     this._project = null;
     this._stageError = null;
+    this._assetDetail = null;
     try {
       const parsed = parseProject(await readProject(this.context, this.actions?.daFetch, slug));
       if (parsed) {
@@ -252,6 +261,7 @@ class DaCoworkerProject extends LitElement {
     const stage = this._project?.stages.find((s) => s.stageIndex === stageIndex);
     if (stage && stage.status !== 'Locked') {
       this._activeStage = stageIndex;
+      this._assetDetail = null;
       this.activateStage();
     }
   }
@@ -262,6 +272,7 @@ class DaCoworkerProject extends LitElement {
     this.autoStartStage2();
     this.autoStartStage3();
     this.autoStartStage4();
+    this.autoStartStage5();
     this.maybeLoadCreativeSuggestions();
   }
 
@@ -292,6 +303,14 @@ class DaCoworkerProject extends LitElement {
   // Stage 4 becomes In Progress the first time it is opened (ticket #44).
   autoStartStage4() {
     const s = this._project?.stages.find((st) => stageKey(st.stage) === 'page-generation');
+    if (s && s.stageIndex === this._activeStage && s.status === 'Not Started' && !this._savingStage) {
+      this.changeStage(s.stageIndex, 'In Progress');
+    }
+  }
+
+  // Stage 5 becomes In Progress the first time it is opened (ticket #64).
+  autoStartStage5() {
+    const s = this._project?.stages.find((st) => stageKey(st.stage) === 'asset-generation');
     if (s && s.stageIndex === this._activeStage && s.status === 'Not Started' && !this._savingStage) {
       this.changeStage(s.stageIndex, 'In Progress');
     }
@@ -666,6 +685,41 @@ class DaCoworkerProject extends LitElement {
       </div>`;
   }
 
+  // Stage 5's completion control. The same two ways out as Stage 4, both of
+  // which unlock Stage 6: "Complete Stage 5" once every slot carries an asset
+  // that is on the page, and the stronger "Approved" the approvals gate reaches
+  // at 2 of 2 (FR-47). Reopen re-locks Stage 6. (ticket #64)
+  renderStage5Control(stage) {
+    const saving = this._savingStage
+      ? html`<span class="cw-saving"><span class="nx-loading-spinner"></span>Saving...</span>` : '';
+    if (stage.status === 'Approved') {
+      return html`
+        <div class="cw-controls">
+          <span class="cw-stage-done">&#9733; Stage 5 approved - Stage 6 is unlocked.</span>
+          <button class="nx-action-btn" ?disabled=${this._savingStage}
+            @click=${() => this.changeStage(stage.stageIndex, 'In Progress')}>Reopen</button>
+          ${saving}
+        </div>`;
+    }
+    if (stage.status === 'Complete') {
+      return html`
+        <div class="cw-controls">
+          <span class="cw-stage-done">&#10003; Stage 5 complete - Stage 6 is unlocked.</span>
+          <button class="nx-action-btn" ?disabled=${this._savingStage}
+            @click=${() => this.changeStage(stage.stageIndex, 'In Progress')}>Reopen</button>
+          ${saving}
+        </div>`;
+    }
+    const { ready, reason } = stage5Readiness(this._project.page, this._project.assets);
+    return html`
+      <div class="cw-controls">
+        <button class="nx-btn-accent" ?disabled=${!ready || this._savingStage}
+          @click=${() => this.changeStage(stage.stageIndex, 'Complete')}>Complete Stage 5</button>
+        ${!ready ? html`<span class="cw-muted">${reason}</span>` : ''}
+        ${saving}
+      </div>`;
+  }
+
   renderStagePanel(stages) {
     const stage = stages.find((s) => s.stageIndex === this._activeStage);
     if (!stage) return '';
@@ -810,6 +864,51 @@ class DaCoworkerProject extends LitElement {
         <div class="cw-stage1-foot">${this.renderStage4Control(stage)}${err}</div>`;
     }
 
+    // Stage 5 mirrors Stage 4's layout: the approvals strip under the title,
+    // then the work on the left and the rendered page on the right. The grid's
+    // events are the integration the three standalone panels were built for -
+    // `assets-changed` re-renders the page view, `asset-selected` opens the
+    // detail. (#64)
+    if (stageKey(stage.stage) === 'asset-generation') {
+      const brief = this._project.brief ?? {};
+      const cd = this._project.creativeDirection ?? {};
+      const page = this._project.page ?? null;
+      const assets = this._project.assets ?? [];
+      const daFetch = this.actions?.daFetch;
+      // Approvals can only be granted once the stage's work is done - the same
+      // readiness rule that guards "Complete Stage 5".
+      const { ready, reason } = stage5Readiness(page, assets);
+      return html`
+        ${title}
+        <da-approvals-panel
+          .context=${this.context} .daFetch=${daFetch} .slug=${this._selectedSlug}
+          .stageIndex=${stage.stageIndex} .names=${STAGE5_APPROVALS}
+          .approvals=${this._project.approvals ?? []}
+          .artifactUrl=${page?.previewUrl || page?.editUrl || ''}
+          .locked=${!ready} .lockedReason=${reason}
+          @approvals-changed=${(e) => this.onApprovalsChanged(e)}></da-approvals-panel>
+        <div class="cw-cd-row cw-pg-row">
+          <div class="cw-card">
+            <da-assets-panel
+              .context=${this.context} .daFetch=${daFetch} .slug=${this._selectedSlug}
+              .page=${page} .creativeDirection=${cd} .assets=${assets}
+              @assets-changed=${(e) => this.onAssetsChanged(e.detail?.assets)}
+              @asset-selected=${(e) => { this._assetDetail = e.detail?.asset ?? null; }}></da-assets-panel>
+          </div>
+          <div class="cw-card">
+            <da-assets-rendering-panel
+              .context=${this.context} .daFetch=${daFetch} .slug=${this._selectedSlug}
+              .brief=${brief} .page=${page}></da-assets-rendering-panel>
+          </div>
+        </div>
+        <da-asset-detail
+          .context=${this.context} .daFetch=${daFetch} .slug=${this._selectedSlug}
+          .page=${page} .creativeDirection=${cd} .asset=${this._assetDetail}
+          @asset-changed=${(e) => this.onAssetChanged(e.detail?.asset)}
+          @detail-close=${() => { this._assetDetail = null; }}></da-asset-detail>
+        <div class="cw-stage1-foot">${this.renderStage5Control(stage)}${err}</div>`;
+    }
+
     return html`
       ${title}
       <p class="cw-panel-note">Placeholder panel - the ${stage.stage} tools arrive in a later ticket.</p>
@@ -865,6 +964,29 @@ class DaCoworkerProject extends LitElement {
     } else if (!fullyApproved && stage.status === 'Approved') {
       this.changeStage(stageIndex, 'In Progress');
     }
+  }
+
+  // The Generated Assets grid (#61) persisted a change - after the first run,
+  // after the swap, and after every Regenerate. Keep the project's cache true,
+  // so the completion gate and the detail view read the same rows, and re-load
+  // the Assets Rendering view (#63) when - and only when - the page's pictures
+  // actually moved. The rendering panel deliberately does not listen for this
+  // event itself; refreshing it is the shell's call, because a mid-generation
+  // announcement would re-load a page whose swap is still in flight. (#64)
+  onAssetsChanged(assets) {
+    const before = assetsStamp(this._project?.assets);
+    this._project = { ...this._project, assets: assets ?? [] };
+    if (assetsStamp(assets) !== before) {
+      this.querySelector('da-assets-rendering-panel')?.refresh();
+    }
+  }
+
+  // The detail view (#62) regenerated its one asset: it already saved the row
+  // by slot, so the shell merges it in the same way and re-renders the page.
+  onAssetChanged(asset) {
+    if (!asset) return;
+    this.onAssetsChanged(mergeAssets(this._project?.assets, [asset]));
+    this._assetDetail = asset;
   }
 
   renderProject() {
