@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { parseProject } from './projects.js';
 import {
   serializeRecord, savePage, savePreflight, saveBrief, saveCoworkerSession, saveKeywords,
-  saveApprovals, saveStageState, saveAssets,
+  saveApprovals, saveStageState, saveAssets, saveLocales,
 } from './stage-state.js';
 
 // A fake daFetch backed by a single in-memory record: a GET (no options) reads
@@ -245,6 +245,21 @@ test('saveStageState preserves the approvals sheet across a status write', async
   assert.deepEqual(written.approvals, rows);
 });
 
+// One Stage 6 locale row (all 10 fields) for the given code, overridable.
+const locale = (code, over = {}) => ({
+  code,
+  label: `Label ${code}`,
+  prefix: `/${code.slice(0, 2)}`,
+  isDefault: false,
+  status: 'Generated',
+  path: `/${code.slice(0, 2)}/drafts/x`,
+  previewUrl: `https://main--r--o.aem.page/${code.slice(0, 2)}/drafts/x`,
+  editUrl: `https://da.live/edit#/o/s/${code.slice(0, 2)}/drafts/x`,
+  generatedAt: '2026-01-08T00:00:00Z',
+  error: '',
+  ...over,
+});
+
 test('serializeRecord round-trips the assets sheet through parseProject', () => {
   const assets = [asset(0), asset(2)];
   const record = serializeRecord(
@@ -260,7 +275,7 @@ test('serializeRecord round-trips the assets sheet through parseProject', () => 
     [],
     assets,
   );
-  assert.equal(record[':version'], 9);
+  assert.equal(record[':version'], 10);
   const model = parseProject(record);
   assert.deepEqual(model.assets, assets);
   assert.deepEqual(model.page, page);
@@ -319,4 +334,120 @@ test('another stage write preserves the assets sheet', async () => {
   await savePreflight(ctx, daFetch, 'x', preflight);
 
   assert.deepEqual(parseProject(writes[0]).assets, rows);
+});
+
+test('serializeRecord round-trips the locales sheet through parseProject', () => {
+  const locales = [locale('en-US', { prefix: '', isDefault: true, path: '/drafts/x' }), locale('fr-FR')];
+  const record = serializeRecord(
+    { slug: 'x' },
+    [],
+    [{ text: 'k', role: 'primary' }],
+    null,
+    null,
+    null,
+    page,
+    preflight,
+    [],
+    [],
+    [asset(0)],
+    locales,
+  );
+  assert.equal(record[':version'], 10);
+  const model = parseProject(record);
+  assert.deepEqual(model.locales, locales);
+  assert.deepEqual(model.assets, [asset(0)]);
+  assert.deepEqual(model.page, page);
+});
+
+test('a record written before Stage 6 parses to an empty locales sheet', () => {
+  const record = serializeRecord({ slug: 'x' }, [], [], null, null, null, page);
+  delete record.locales;
+  assert.deepEqual(parseProject(record).locales, []);
+});
+
+test('saveLocales stores one row per locale and keeps the rest of the record', async () => {
+  const record = serializeRecord({ slug: 'x' }, [], [{ text: 'k', role: 'primary' }], null, null, null, page, preflight, [], [], [asset(0)]);
+  const { daFetch, writes } = fakeDa(record);
+
+  const rows = [locale('en-US', { prefix: '', isDefault: true, path: '/drafts/x' }), locale('fr-FR')];
+  const saved = await saveLocales(ctx, daFetch, 'x', { locales: rows });
+  assert.equal(saved.length, 2);
+
+  const written = parseProject(writes[0]);
+  assert.deepEqual(written.locales, rows);
+  assert.deepEqual(written.assets, [asset(0)]);
+  assert.deepEqual(written.page, page);
+  assert.deepEqual(written.keywords, [{ text: 'k', role: 'primary' }]);
+});
+
+test('saveLocales replaces exactly the one locale a re-translate rewrites', async () => {
+  const rows = [locale('en-US'), locale('fr-FR'), locale('ja-JP')];
+  const record = serializeRecord({ slug: 'x' }, [], [], null, null, null, page, null, [], [], [], rows);
+  const { daFetch, writes } = fakeDa(record);
+
+  const again = locale('fr-FR', { generatedAt: '2026-02-02T00:00:00Z' });
+  await saveLocales(ctx, daFetch, 'x', { locales: [again] });
+
+  const written = parseProject(writes[0]);
+  // Kept rows stay in place; the replaced row lands last, the same merge order
+  // as saveAssets and saveApprovals.
+  assert.deepEqual(written.locales, [rows[0], rows[2], again]);
+  assert.deepEqual(written.page, page);
+});
+
+test('saveLocales matches a stored code case-insensitively', async () => {
+  const record = serializeRecord({ slug: 'x' }, [], [], null, null, null, null, null, [], [], [], [locale('fr-FR')]);
+  const { daFetch, writes } = fakeDa(record);
+
+  const again = locale('fr-fr', { status: 'Failed', error: 'AO reflowed the doc.' });
+  await saveLocales(ctx, daFetch, 'x', { locales: [again] });
+
+  assert.deepEqual(parseProject(writes[0]).locales, [again]);
+});
+
+test('saveLocales drops the locales a de-selection removed', async () => {
+  const rows = [locale('en-US'), locale('fr-FR'), locale('ja-JP')];
+  const record = serializeRecord({ slug: 'x' }, [], [], null, null, null, null, null, [], [], [], rows);
+  const { daFetch, writes } = fakeDa(record);
+
+  const saved = await saveLocales(ctx, daFetch, 'x', { remove: ['ja-JP'] });
+  assert.deepEqual(saved, [rows[0], rows[1]]);
+  assert.deepEqual(parseProject(writes[0]).locales, [rows[0], rows[1]]);
+});
+
+test('saveLocales adds and removes in one write', async () => {
+  const rows = [locale('en-US'), locale('fr-FR')];
+  const record = serializeRecord({ slug: 'x' }, [], [], null, null, null, null, null, [], [], [], rows);
+  const { daFetch, writes } = fakeDa(record);
+
+  await saveLocales(ctx, daFetch, 'x', { locales: [locale('es-MX')], remove: ['fr-FR'] });
+
+  assert.deepEqual(parseProject(writes[0]).locales, [rows[0], locale('es-MX')]);
+});
+
+test('another stage write preserves the locales sheet', async () => {
+  const rows = [locale('en-US'), locale('fr-FR')];
+  const record = serializeRecord({ slug: 'x' }, [], [], null, null, null, null, null, [], [], [], rows);
+  const { daFetch, writes } = fakeDa(record);
+
+  await savePreflight(ctx, daFetch, 'x', preflight);
+
+  assert.deepEqual(parseProject(writes[0]).locales, rows);
+});
+
+test('a stage-status write preserves the locales sheet', async () => {
+  const rows = [locale('en-US'), locale('fr-FR')];
+  const stage6 = {
+    stage: 'Page Localization',
+    stageIndex: 6,
+    status: 'In Progress',
+    steps: [],
+  };
+  const record = serializeRecord({ slug: 'x' }, [stage6], [], null, null, null, null, null, [], [], [], rows);
+  const { daFetch, writes } = fakeDa(record);
+  const project = parseProject(record);
+
+  await saveStageState(ctx, daFetch, 'x', project, { stageIndex: 6, status: 'Complete' });
+
+  assert.deepEqual(parseProject(writes[0]).locales, rows);
 });
