@@ -43,6 +43,9 @@ To show the app as a card in the DA UI, add a row to the `apps` config sheet at
 - `stages.js` - reads the stage-config sheet, grouped into stages/steps.
 - `locales.js` - the Stage 6 locale catalog: `{code, label, prefix}` per locale,
   the Search rule, and `localePath` (`/drafts/x` under `/fr` -> `/fr/drafts/x`).
+- `localization.js` - the Stage 6 localization contract: one AO turn per locale
+  (`timeoutMs: 300000`), verify the shape BEFORE writing, write to the locale
+  path and preview once, plus the locale's `/nav` + `/footer`. See gate #74.
 - `project.js` - slug, uniqueness check, record builder, `createProject`.
 - `projects.js` - `listProjects`, `readProject`, `parseProject`.
 - `seed/` - the `SEO` stage-config sheet (7 stages / 20 steps) + re-seed note.
