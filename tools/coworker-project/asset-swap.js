@@ -363,20 +363,25 @@ export async function writePageDoc(daFetch, org, site, path, html) {
  * one call ingests every image on the page in ~3 s whatever the slot count.
  * Returns a soft error message, or null: the doc is already saved, so a preview
  * failure must not lose the swap.
+ *
+ * Stage 6 previews a localized doc through this same call (#77), where nothing
+ * was swapped, so `saved` names what DID land - the message has to be true for
+ * the reader of the row it ends up in.
  * @param {(url: string, opts?: object) => Promise<Response>} daFetch
  * @param {string} org
  * @param {string} site
  * @param {string} path - the extensionless page path
+ * @param {string} [saved] - what was saved, for the soft error message
  * @returns {Promise<string|null>}
  */
-export async function previewPage(daFetch, org, site, path) {
+export async function previewPage(daFetch, org, site, path, saved = 'Images saved') {
   if (!org || !site || typeof daFetch !== 'function') return 'Missing DA context.';
   try {
     const resp = await daFetch(`${AEM_ADMIN}/preview/${org}/${site}/${REF}${path}`, { method: 'POST' });
     if (resp.ok) return null;
-    return `Images saved, but the preview failed: ${resp.status} ${resp.statusText}`;
+    return `${saved}, but the preview failed: ${resp.status} ${resp.statusText}`;
   } catch (e) {
-    return `Images saved, but the preview failed: ${message(e)}`;
+    return `${saved}, but the preview failed: ${message(e)}`;
   }
 }
 
